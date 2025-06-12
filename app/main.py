@@ -5,7 +5,7 @@ from typing import List, Dict, Optional
 from datetime import datetime
 import uuid
 
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, subqueryload
 
 from app.models import Ad, Location, Photo # Наши Pydantic-модели
 from app.database import engine, Base, get_db # Настройки БД и функция get_db
@@ -152,16 +152,19 @@ async def create_ad(ad: Ad, db: Session = Depends(get_db)):
 @app.get("/ads/{ad_id}", response_model=Ad)
 async def get_ad(ad_id: str, db: Session = Depends(get_db)):
     """
-    Возвращает объявление по его ID из базы данных.
+    Возвращает объявление по его ID, включая информацию о дубликатах, если применимо.
     """
-    db_ad = db.query(db_models.DBAd).filter(db_models.DBAd.id == ad_id).first()
+    # Загружаем объявление, его местоположение, фото, а также связанные дубликаты или уникального родителя
+    db_ad = db.query(db_models.DBAd).options(
+        joinedload(db_models.DBAd.location_obj),
+        joinedload(db_models.DBAd.photos_obj),
+        subqueryload(db_models.DBAd.duplicates_list), # Загружаем список дубликатов, если это уникальное объявление
+        joinedload(db_models.DBAd.unique_parent_ad) # Загружаем уникального родителя, если это дубликат
+    ).filter(db_models.DBAd.id == ad_id).first()
+
     if db_ad is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ad not found")
     
-    # Загружаем связанные объекты (location и photos)
-    db_ad.location_obj # Загрузка location
-    db_ad.photos_obj # Загрузка photos
-
     # Преобразуем SQLAlchemy-модель в Pydantic-модель для ответа
     response_ad = Ad(
         id=db_ad.id,
@@ -192,7 +195,8 @@ async def get_ad(ad_id: str, db: Session = Depends(get_db)):
         realtor_score=db_ad.realtor_score,
         is_duplicate=db_ad.is_duplicate,
         unique_ad_id=db_ad.unique_ad_id,
-        duplicate_of_ids=db_ad.duplicate_of_ids
+        # Если это уникальное объявление, заполняем duplicate_of_ids из duplicates_list
+        duplicate_of_ids=[dup.id for dup in db_ad.duplicates_list] if not db_ad.is_duplicate else [],
     )
     return response_ad
 
@@ -285,3 +289,35 @@ async def get_all_ads(
         ))
     return response_ads
 
+@app.get("/ads/{ad_id}/sources", response_model=List[Dict[str, str]])
+async def get_ad_sources(ad_id: str, db: Session = Depends(get_db)):
+    """
+    Возвращает список источников (URL и название) для данного объявления и всех его дубликатов.
+    """
+    db_ad = db.query(db_models.DBAd).options(
+        subqueryload(db_models.DBAd.duplicates_list),
+        joinedload(db_models.DBAd.unique_parent_ad)
+    ).filter(db_models.DBAd.id == ad_id).first()
+
+    if db_ad is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ad not found")
+
+    sources = []
+    
+    # Если это уникальное объявление, добавляем его источник и источники всех его дубликатов
+    if not db_ad.is_duplicate:
+        sources.append({"id": db_ad.id, "source_url": db_ad.source_url, "source_name": db_ad.source_name})
+        for duplicate in db_ad.duplicates_list:
+            sources.append({"id": duplicate.id, "source_url": duplicate.source_url, "source_name": duplicate.source_name})
+    # Если это дубликат, находим его уникального родителя и добавляем источники всей группы
+    else:
+        if db_ad.unique_parent_ad:
+            sources.append({"id": db_ad.unique_parent_ad.id, "source_url": db_ad.unique_parent_ad.source_url, "source_name": db_ad.unique_parent_ad.source_name})
+            for duplicate in db_ad.unique_parent_ad.duplicates_list:
+                sources.append({"id": duplicate.id, "source_url": duplicate.source_url, "source_name": duplicate.source_name})
+        else:
+            # Если дубликат, но уникальный родитель не найден (возможно, ошибка данных),
+            # то просто возвращаем источник самого дубликата.
+            sources.append({"id": db_ad.id, "source_url": db_ad.source_url, "source_name": db_ad.source_name})
+
+    return sources

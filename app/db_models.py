@@ -35,31 +35,28 @@ class DBPhoto(Base):
 class DBAd(Base):
     __tablename__ = "ads"
 
-    id = Column(String, primary_key=True, index=True, unique=True) # Используем String для UUID
+    id = Column(String, primary_key=True, index=True, unique=True)
     source_url = Column(String, nullable=False)
     source_name = Column(String, nullable=False)
     title = Column(String, nullable=False)
-    description = Column(Text, nullable=False) # Text для длинных описаний
+    description = Column(Text, nullable=False)
     price = Column(Float, nullable=True)
     currency = Column(String, default="RUB")
-    
+
     area_sqm = Column(Float, nullable=True)
     rooms = Column(Integer, nullable=True)
     floor = Column(Integer, nullable=True)
     total_floors = Column(Integer, nullable=True)
-    
-    phone_numbers = Column(ARRAY(String), default=[]) # Список строк
+
+    phone_numbers = Column(ARRAY(String), default=[])
     email = Column(String, nullable=True)
     contact_name = Column(String, nullable=True)
 
-    # Связь с таблицей locations
     location_id = Column(Integer, ForeignKey("locations.id"), nullable=True)
     location_obj = relationship("DBLocation", back_populates="ads")
 
-    # Связь с таблицей photos
     photos_obj = relationship("DBPhoto", back_populates="ad")
 
-    # Используем JSONB для хранения словаря атрибутов
     attributes = Column(MutableDict.as_mutable(JSON), default={})
 
     published_at = Column(DateTime, nullable=True)
@@ -69,6 +66,28 @@ class DBAd(Base):
     realtor_score = Column(Float, nullable=True)
 
     is_duplicate = Column(Boolean, default=False)
-    unique_ad_id = Column(String, nullable=True)
-    duplicate_of_ids = Column(ARRAY(String), default=[]) # Список ID дубликатов
 
+    # Изменяем unique_ad_id на внешний ключ, ссылающийся на id этой же таблицы
+    unique_ad_id = Column(String, ForeignKey('ads.id'), nullable=True) 
+
+    # Отношение для получения "родительского" уникального объявления, если текущее - дубликат
+    unique_parent_ad = relationship(
+    'DBAd', 
+    remote_side=[id], # Указываем, что id - это удаленная сторона отношения
+    back_populates='duplicates_list', # Обратное отношение
+    uselist=False # Одно объявление может иметь только одного уникального родителя
+    )
+
+    # Отношение для получения списка дубликатов, если текущее - уникальное объявление
+    duplicates_list = relationship(
+    'DBAd', 
+    back_populates='unique_parent_ad', # Обратное отношение
+    foreign_keys=[unique_ad_id] # Указываем, какой столбец является внешним ключом
+    )
+
+    # duplicate_of_ids - это поле теперь не нужно для ORM-связи, но может остаться для хранения
+    # списка ID, если это требуется для какой-то специфической логики.
+    # Для ORM-связи мы используем duplicates_list.
+    # Если это поле не будет использоваться, его можно удалить.
+    # Пока оставим, но в дальнейшем, возможно, уберем.
+    duplicate_of_ids = Column(ARRAY(String), default=[]) 
