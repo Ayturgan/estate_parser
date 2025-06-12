@@ -1,0 +1,24 @@
+# docker-compose.yml
+
+version: '3.8'
+
+services:
+  db:
+    image: postgres:16-alpine # Используем официальный образ PostgreSQL, версия 16, легковесный alpine
+    container_name: real_estate_parser_db # Имя контейнера
+    environment:
+      POSTGRES_DB: real_estate_db       # Имя базы данных
+      POSTGRES_USER: real_estate_user   # Имя пользователя БД
+      POSTGRES_PASSWORD: admin123 # <-- ЗАМЕНИ НА СВОЙ НАДЕЖНЫЙ ПАРОЛЬ!
+    ports:
+      - "5432:5432" # Пробрасываем порт 5432 контейнера на порт 5432 твоей машины
+    volumes:
+      - db_data:/var/lib/postgresql/data # Сохраняем данные БД в постоянное хранилище (volume)
+    healthcheck: # Проверка здоровья БД
+      test: ["CMD-SHELL", "pg_isready -U real_estate_user -d real_estate_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  db_data: # Определение volume для сохранения данных
