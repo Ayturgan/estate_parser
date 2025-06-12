@@ -5,7 +5,7 @@ from typing import List, Dict, Optional
 from datetime import datetime
 import uuid
 
-from sqlalchemy.orm import Session # Импортируем Session для работы с БД
+from sqlalchemy.orm import Session, joinedload
 
 from app.models import Ad, Location, Photo # Наши Pydantic-модели
 from app.database import engine, Base, get_db # Настройки БД и функция get_db
@@ -198,19 +198,60 @@ async def get_ad(ad_id: str, db: Session = Depends(get_db)):
 
 
 @app.get("/ads/", response_model=List[Ad])
-async def get_all_ads(db: Session = Depends(get_db)):
+async def get_all_ads(
+    db: Session = Depends(get_db),
+    is_realtor: Optional[bool] = None, # Фильтр по риэлтору
+    city: Optional[str] = None,        # Фильтр по городу
+    district: Optional[str] = None,    # Фильтр по району
+    min_price: Optional[float] = None, # Фильтр по минимальной цене
+    max_price: Optional[float] = None, # Фильтр по максимальной цене
+    min_area: Optional[float] = None,  # Фильтр по минимальной площади
+    max_area: Optional[float] = None,  # Фильтр по максимальной площади
+    rooms: Optional[int] = None,       # Фильтр по количеству комнат
+    source_name: Optional[str] = None, # Фильтр по источнику
+    limit: int = 100,                  # Ограничение количества результатов
+    offset: int = 0                    # Смещение для пагинации
+):
     """
-    Возвращает список всех объявлений из базы данных.
+    Возвращает список всех объявлений из базы данных с возможностью фильтрации.
     """
-    db_ads = db.query(db_models.DBAd).all()
+    query = db.query(db_models.DBAd).options(
+        joinedload(db_models.DBAd.location_obj), # Загружаем location_obj одним запросом
+        joinedload(db_models.DBAd.photos_obj)    # Загружаем photos_obj одним запросом
+    )
+
+    if is_realtor is not None:
+        query = query.filter(db_models.DBAd.is_realtor == is_realtor)
+    
+    if city:
+        # Фильтруем по городу в связанной таблице locations
+        query = query.join(db_models.DBAd.location_obj).filter(db_models.DBLocation.city == city)
+    
+    if district:
+        query = query.join(db_models.DBAd.location_obj).filter(db_models.DBLocation.district == district)
+
+    if min_price:
+        query = query.filter(db_models.DBAd.price >= min_price)
+    if max_price:
+        query = query.filter(db_models.DBAd.price <= max_price)
+    
+    if min_area:
+        query = query.filter(db_models.DBAd.area_sqm >= min_area)
+    if max_area:
+        query = query.filter(db_models.DBAd.area_sqm <= max_area)
+
+    if rooms:
+        query = query.filter(db_models.DBAd.rooms == rooms)
+
+    if source_name:
+        query = query.filter(db_models.DBAd.source_name == source_name)
+
+    # Применяем пагинацию
+    db_ads = query.offset(offset).limit(limit).all()
     
     # Преобразуем список SQLAlchemy-моделей в список Pydantic-моделей
     response_ads = []
     for db_ad in db_ads:
-        # Загружаем связанные объекты (location и photos)
-        db_ad.location_obj # Загрузка location
-        db_ad.photos_obj # Загрузка photos
-
         response_ads.append(Ad(
             id=db_ad.id,
             source_url=db_ad.source_url,
