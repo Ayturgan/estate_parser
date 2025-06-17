@@ -7,6 +7,10 @@ from sqlalchemy.exc import IntegrityError
 from itemadapter import ItemAdapter
 from app.database import SessionLocal
 from app.db_models import DBAd, DBLocation, DBPhoto
+import requests
+import io
+from PIL import Image
+from imagehash import average_hash
 
 
 class ParserPipeline:
@@ -311,8 +315,23 @@ class DatabasePipeline:
                 images = adapter.get('images') or ([adapter.get('main_image_url')] if adapter.get('main_image_url') else [])
                 for image_url in images:
                     if image_url:
-                        photo = DBPhoto(url=image_url, ad_id=ad.id)
-                        session.add(photo)
+                        try:
+                            # Скачиваем фото
+                            response = requests.get(image_url, timeout=10)
+                            img = Image.open(io.BytesIO(response.content))
+                            
+                            # Вычисляем хэш
+                            photo_hash = str(average_hash(img))
+                            
+                            # Создаем запись в базе
+                            photo = DBPhoto(url=image_url, hash=photo_hash, ad_id=ad.id)
+                            session.add(photo)
+                            spider.logger.info(f"Computed hash for photo {image_url}: {photo_hash}")
+                        except Exception as e:
+                            spider.logger.error(f"Error processing photo {image_url}: {e}")
+                            # Создаем запись без хэша
+                            photo = DBPhoto(url=image_url, ad_id=ad.id)
+                            session.add(photo)
                 if images:
                     session.commit()
 

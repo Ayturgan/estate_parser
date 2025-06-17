@@ -5,6 +5,7 @@ from scrapy_playwright.page import PageMethod
 from ..parsers.loader import load_config, extract_value
 import asyncio
 import logging
+import time
 
 class GenericSpider(scrapy.Spider):
     name = "generic_scraper"
@@ -43,7 +44,7 @@ class GenericSpider(scrapy.Spider):
                     if key == "item":
                         continue
 
-                    # ИСПРАВЛЕНИЕ: Добавляем обработку ошибок для селекторов
+                    # Обработка ошибок для селекторов
                     try:
                         value = None
                         if sel.startswith("xpath:"):
@@ -63,7 +64,7 @@ class GenericSpider(scrapy.Spider):
                 use_playwright = self.detail_config.get("use_playwright", False)
 
                 if follow_link and item_data.get("link"):
-                    # ИСПРАВЛЕНИЕ: Проверяем корректность ссылки
+                    # Проверка корректности ссылки
                     try:
                         detail_url = response.urljoin(item_data["link"])
                         item_data["link"] = detail_url
@@ -74,12 +75,12 @@ class GenericSpider(scrapy.Spider):
                         }
                         
                         if use_playwright:
-                            # ИСПРАВЛЕНИЕ: Улучшенная конфигурация Playwright
+                            # Улучшенная конфигурация Playwright
                             playwright_methods = [
                                 PageMethod("wait_for_load_state", "networkidle"),
                             ]
                             
-                            # Добавляем селектор ожидания если есть
+                            # Добавляем селектор ожидания, если он указан
                             wait_selector = self.detail_config.get("wait_selector", "img.fotorama__img")
                             if wait_selector:
                                 playwright_methods.append(
@@ -139,7 +140,7 @@ class GenericSpider(scrapy.Spider):
                 self.logger.error(f"Error in pagination: {e}")
 
     def parse_detail(self, response):
-        """ИСПРАВЛЕННАЯ ВЕРСИЯ: Парсинг детальной страницы без return в генераторе"""
+        """Парсинг детальной страницы без return в генераторе"""
         item = response.meta["item"]
         
         try:
@@ -165,18 +166,24 @@ class GenericSpider(scrapy.Spider):
             self.logger.error(f"Error parsing detail page {response.url}: {e}")
             self.failed_items += 1
 
-        # ИСПРАВЛЕНИЕ: Убираем return, только yield
         yield item
 
-    def page_init_callback(self, page, request):
+    async def page_init_callback(self, page, request):
         """Callback для инициализации Playwright страницы"""
+        if not page:
+            self.logger.warning("Page object is None in page_init_callback")
+            return
+            
         try:
             # Устанавливаем таймауты
-            page.set_default_timeout(30000)  # 30 секунд
-            page.set_default_navigation_timeout(30000)
+            await page.set_default_timeout(30000)  # 30 секунд
+            await page.set_default_navigation_timeout(30000)
             
             # Отключаем загрузку ненужных ресурсов для ускорения
-            page.route("**/*.{png,jpg,jpeg,gif,svg,ico,woff,woff2}", lambda route: route.abort())
+            def abort_resources(route):
+                route.abort()
+            
+            page.route("**/*.{png,jpg,jpeg,gif,svg,ico,woff,woff2}", abort_resources)
             
         except Exception as e:
             self.logger.warning(f"Error in page_init_callback: {e}")
@@ -193,23 +200,51 @@ class GenericSpider(scrapy.Spider):
                 self.logger.error(f"Playwright/Timeout error: {error_type}")
 
     def closed(self, reason):
-        """ИСПРАВЛЕНИЕ: Более мягкое закрытие спайдера"""
+        """Корректное закрытие спайдера с обработкой асинхронных задач"""
         self.logger.info(f"Spider closed: {reason}")
         self.logger.info(f"Processed items: {self.processed_items}")
         self.logger.info(f"Failed items: {self.failed_items}")
         
-        # ИСПРАВЛЕНИЕ: Более осторожная очистка asyncio задач
         try:
-            # Не пытаемся принудительно отменять задачи - это может вызвать CancelledError
-            # Просто логируем информацию
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    pending_tasks = [task for task in asyncio.all_tasks(loop) if not task.done()]
-                    if pending_tasks:
-                        self.logger.info(f"Found {len(pending_tasks)} pending tasks (will be handled by Scrapy)")
-            except Exception:
-                pass  # Игнорируем ошибки получения loop
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # Получаем все незавершенные задачи
+                pending_tasks = [task for task in asyncio.all_tasks(loop) 
+                                 if not task.done() and not task.cancelled()]
+                
+                if pending_tasks:
+                    self.logger.info(f"Found {len(pending_tasks)} pending tasks")
+                    
+                    async def cancel_tasks():
+                        for task in pending_tasks:
+                            if not task.done() and not task.cancelled():
+                                task.cancel()
+                                try:
+                                    await asyncio.wait_for(task, timeout=1.0)
+                                except (asyncio.CancelledError, asyncio.TimeoutError):
+                                    pass
+                                except Exception as e:
+                                    self.logger.warning(f"Error cancelling task: {e}")
+                    
+                    future = asyncio.run_coroutine_threadsafe(cancel_tasks(), loop)
+                    try:
+                        future.result(timeout=5)  # Ждем завершения отмены задач
+                    except Exception as e:
+                        if isinstance(e, asyncio.CancelledError):
+                            self.logger.info("Spider tasks were cancelled safely")
+                        else:
+                            self.logger.warning(f"Error waiting for tasks cancellation: {e}")
+                    
         except Exception as e:
             self.logger.warning(f"Error in cleanup: {e}")
-
+            
+        # Даем время на завершение всех операций
+        time.sleep(1)
+        
+        try:
+            if reason == 'finished':
+                self.logger.info("Spider finished successfully")
+            else:
+                self.logger.warning(f"Spider closed with reason: {reason}")
+        except Exception as e:
+            self.logger.warning(f"Unhandled exception during spider closure: {e}")

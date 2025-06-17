@@ -13,7 +13,7 @@ SPIDER_MODULES = ["real_estate_scraper.spiders"]
 NEWSPIDER_MODULE = "real_estate_scraper.spiders"
 
 # Настройки User-Agent
-USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+USER_AGENT = None  # Отключаем дефолтный User-Agent
 
 # Соблюдаем robots.txt
 ROBOTSTXT_OBEY = True
@@ -22,8 +22,17 @@ ROBOTSTXT_OBEY = True
 DOWNLOAD_DELAY = 3
 RANDOMIZE_DOWNLOAD_DELAY = True
 
+# Настройки повторных попыток
+RETRY_ENABLED = True
+RETRY_TIMES = 3
+RETRY_HTTP_CODES = [500, 502, 503, 504, 522, 524, 408, 429]
 
-
+# Настройки прокси (закомментировано)
+# PROXY_POOL = [
+#     'http://proxy1.example.com:8080',
+#     'http://proxy2.example.com:8080',
+#     'http://proxy3.example.com:8080',
+# ]
 
 ADDONS = {}
 
@@ -33,16 +42,22 @@ DOWNLOAD_HANDLERS = {
 }
 
 DOWNLOADER_MIDDLEWARES = {
-    'scrapy.downloadermiddlewares.httpproxy.HttpProxyMiddleware': 110,
+    # 'scrapy.downloadermiddlewares.httpproxy.HttpProxyMiddleware': 110,
     'scrapy.downloadermiddlewares.useragent.UserAgentMiddleware': None,
     'scrapy.downloadermiddlewares.retry.RetryMiddleware': 90,
+    'real_estate_scraper.middlewares.RandomUserAgentMiddleware': 400,
+    # 'real_estate_scraper.middlewares.ProxyMiddleware': 350,
+    'real_estate_scraper.middlewares.RetryMiddleware': 550,
 }
 
 TWISTED_REACTOR = "twisted.internet.asyncioreactor.AsyncioSelectorReactor"
 
 PLAYWRIGHT_BROWSER_TYPE = "chromium"
 
-
+# Настройки логирования
+LOG_LEVEL = 'INFO'
+LOG_FORMAT = '%(asctime)s [%(name)s] %(levelname)s: %(message)s'
+LOG_DATEFORMAT = '%Y-%m-%d %H:%M:%S'
 
 FEED_EXPORT_ENCODING = "utf-8"
 

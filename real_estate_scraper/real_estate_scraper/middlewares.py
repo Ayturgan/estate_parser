@@ -4,6 +4,10 @@
 # https://docs.scrapy.org/en/latest/topics/spider-middleware.html
 
 from scrapy import signals
+import random
+from .user_agents import USER_AGENTS
+# from .proxy_config import proxy_config
+from scrapy.downloadermiddlewares.useragent import UserAgentMiddleware
 
 # useful for handling different item types with a single interface
 from itemadapter import ItemAdapter
@@ -75,6 +79,7 @@ class ParserDownloaderMiddleware:
         # - or return a Request object
         # - or raise IgnoreRequest: process_exception() methods of
         #   installed downloader middleware will be called
+        request.headers['User-Agent'] = random.choice(USER_AGENTS)
         return None
 
     def process_response(self, request, response, spider):
@@ -98,3 +103,47 @@ class ParserDownloaderMiddleware:
 
     def spider_opened(self, spider):
         spider.logger.info("Spider opened: %s" % spider.name)
+
+
+class ProxyMiddleware:
+    def process_request(self, request, spider):
+        # Получаем случайный прокси из конфигурации (закомментировано)
+        # proxy = proxy_config.get_random_proxy()
+        # if proxy:
+        #     request.meta['proxy'] = proxy['http']
+        #     # Добавляем заголовки для прокси
+        #     request.headers['Proxy-Authorization'] = f'Basic {proxy.get("auth", "")}'
+        #     spider.logger.info(f'Using proxy: {proxy["http"]}')
+        pass
+
+
+class RetryMiddleware:
+    def process_response(self, request, response, spider):
+        if response.status in [500, 502, 503, 504, 522, 524, 408, 429]:
+            # Увеличиваем счетчик попыток
+            retry_count = request.meta.get('retry_count', 0)
+            if retry_count < 3:  # Максимум 3 попытки
+                request.meta['retry_count'] = retry_count + 1
+                # Увеличиваем задержку с каждой попыткой
+                request.meta['download_timeout'] = 30 * (retry_count + 1)
+                return request
+        return response
+
+
+class RandomUserAgentMiddleware(UserAgentMiddleware):
+    """
+    Middleware для случайной смены User-Agent при каждом запросе
+    """
+    
+    def __init__(self, user_agent_list):
+        super().__init__()
+        self.user_agent_list = user_agent_list
+
+    @classmethod
+    def from_crawler(cls, crawler):
+        user_agent_list = crawler.settings.get('USER_AGENT_LIST', USER_AGENTS)
+        return cls(user_agent_list)
+
+    def process_request(self, request, spider):
+        user_agent = random.choice(self.user_agent_list)
+        request.headers['User-Agent'] = user_agent
