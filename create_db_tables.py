@@ -5,6 +5,8 @@ from app import db_models # Импортируем, чтобы SQLAlchemy зна
 
 def create_tables():
     print("Creating database tables...")
+    print("Connecting to DB:", engine.url)
+    Base.metadata.drop_all(bind=engine) 
     Base.metadata.create_all(bind=engine)
     print("Database tables created successfully!")
 

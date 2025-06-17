@@ -7,6 +7,13 @@ requires-python = ">=3.10"
 dependencies = [
     "fastapi>=0.115.12",
     "psycopg2-binary>=2.9.10",
+    "python-dotenv>=1.1.0",
+    "pyyaml>=6.0.2",
+    "requests>=2.32.4",
+    "scrapy>=2.13.2",
+    "scrapy-fake-useragent>=1.4.4",
+    "scrapy-playwright>=0.0.43",
     "sqlalchemy>=2.0.41",
+    "sqlalchemy-json>=0.7.0",
     "uvicorn>=0.34.3",
 ]

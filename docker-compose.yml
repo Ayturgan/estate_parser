@@ -19,6 +19,19 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+  pgadmin:
+      image: dpage/pgadmin4
+      container_name: pgadmin
+      environment:
+        PGADMIN_DEFAULT_EMAIL: admin@admin.com  # любой email
+        PGADMIN_DEFAULT_PASSWORD: admin123      # задай пароль для входа в веб-интерфейс
+      ports:
+        - "5050:80"  # Открываем порт 5050 на твоей машине
+      depends_on:
+        - db
+      volumes:
+        - pgadmin_data:/var/lib/pgadmin
 
 volumes:
-  db_data: # Определение volume для сохранения данных
+  db_data:
+  pgadmin_data:

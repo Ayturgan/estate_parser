@@ -1,0 +1,25 @@
+# Пример конфига для другого сайта
+api_url: "https://example.com/api/products?page=1&limit=50"
+main_url: "https://example.com"
+use_playwright: false  # Не используем Playwright для простых API
+make_absolute_url: true
+items_path: "data.products"  # Вложенный путь к данным
+
+headers:
+  Accept: "application/json"
+  User-Agent: "Mozilla/5.0 (compatible; Parser/1.0)"
+  X-API-Key: "your-api-key-here"
+
+field_mapping:
+  title: "name"
+  price: "price.amount"
+  currency: "price.currency"
+  description: "description"
+  url: "slug"
+  
+  # Пример кастомного поля
+  main_image_url:
+    type: "main_image"
+    source_path: "photos"
+    main_field: "is_primary"
+    url_field: "url"
