@@ -89,7 +89,7 @@ class DuplicateProcessor:
             
             logger.info(f"Similarity with ad {other_ad.id}: {similarity:.2f}")
             
-            if similarity > 0.5:  # Снижаем порог схожести
+            if similarity > 0.8:  # Увеличиваем порог схожести
                 similar_ads.append((other_ad, similarity))
         
         return sorted(similar_ads, key=lambda x: x[1], reverse=True)
@@ -323,34 +323,95 @@ class DuplicateProcessor:
             )
             self.db.add(unique_photo)
             
-        # Отмечаем оригинальное объявление как дубликат
-        ad.is_duplicate = True
-        ad.duplicate_info = DBAdDuplicate(
-            unique_ad_id=unique_ad.id,
-            original_ad_id=ad.id,
-            photo_similarity=1.0,
-            text_similarity=1.0,
-            contact_similarity=1.0,
-            address_similarity=1.0,
-            overall_similarity=1.0
-        )
-        self.db.add(ad.duplicate_info)
+        # Оригинальное объявление не является дубликатом (оно является основой для уникального)
+        ad.is_duplicate = False
+        # ad.duplicate_info не устанавливается здесь, так как это не дубликат
     
     def _update_unique_ad(self, unique_ad: DBUniqueAd, ad: DBAd):
         """Обновляет уникальное объявление новыми данными"""
-        # Обновляем только если новые данные лучше
-        if not unique_ad.description and ad.description:
+        # Обновляем уникальное объявление новыми данными
+        # Логика приоритезации данных: предпочтение отдается более полным или определенным данным.
+
+        # Заголовок: выбираем более длинный заголовок
+        if ad.title and (not unique_ad.title or len(ad.title) > len(unique_ad.title)):
+            unique_ad.title = ad.title
+
+        # Описание: выбираем более длинное описание
+        if ad.description and (not unique_ad.description or len(ad.description) > len(unique_ad.description)):
             unique_ad.description = ad.description
-            
-        if not unique_ad.price and ad.price:
+
+        # Цена: приоритет отдается существующей цене, но обновляем, если новая цена присутствует, а текущая отсутствует
+        if ad.price is not None and unique_ad.price is None:
             unique_ad.price = ad.price
             unique_ad.price_original = ad.price_original
             unique_ad.currency = ad.currency
-            
-        if not unique_ad.phone_numbers and ad.phone_numbers:
-            unique_ad.phone_numbers = ad.phone_numbers
-            
-        # Обновляем фотографии
+
+        # Номера телефонов: объединяем, удаляя дубликаты
+        if ad.phone_numbers:
+            if unique_ad.phone_numbers:
+                unique_ad.phone_numbers = list(set(unique_ad.phone_numbers + ad.phone_numbers))
+            else:
+                unique_ad.phone_numbers = ad.phone_numbers
+
+        # Площадь: обновляем, если новое значение есть, а текущего нет
+        if ad.area_sqm is not None and unique_ad.area_sqm is None:
+            unique_ad.area_sqm = ad.area_sqm
+
+        # Комнаты: обновляем, если новое значение есть, а текущего нет
+        if ad.rooms is not None and unique_ad.rooms is None:
+            unique_ad.rooms = ad.rooms
+
+        # Этаж и всего этажей: обновляем, если новые значения есть, а текущих нет
+        if ad.floor is not None and unique_ad.floor is None:
+            unique_ad.floor = ad.floor
+        if ad.total_floors is not None and unique_ad.total_floors is None:
+            unique_ad.total_floors = ad.total_floors
+
+        # Серия, тип здания, состояние, ремонт, мебель, отопление, горячая вода, газ:
+        # Обновляем, если ad имеет значение, а unique_ad - нет
+        fields_to_update_if_none = [
+            'series', 'building_type', 'condition', 'repair', 'furniture',
+            'heating', 'hot_water', 'gas'
+        ]
+        for field in fields_to_update_if_none:
+            ad_value = getattr(ad, field)
+            unique_ad_value = getattr(unique_ad, field)
+            if ad_value and not unique_ad_value:
+                setattr(unique_ad, field, ad_value)
+
+        # Высота потолка: обновляем, если новое значение есть, а текущего нет
+        if ad.ceiling_height is not None and unique_ad.ceiling_height is None:
+            unique_ad.ceiling_height = ad.ceiling_height
+
+        # VIP-статус и риэлторская информация: приоритет отдается True или более высоким показателям
+        if ad.is_vip and not unique_ad.is_vip:
+            unique_ad.is_vip = True
+        if ad.is_realtor and not unique_ad.is_realtor:
+            unique_ad.is_realtor = True
+        if ad.realtor_score is not None and (unique_ad.realtor_score is None or ad.realtor_score > unique_ad.realtor_score):
+            unique_ad.realtor_score = ad.realtor_score
+
+        # Атрибуты: объединяем словари
+        if ad.attributes:
+            if unique_ad.attributes:
+                unique_ad.attributes.update(ad.attributes)
+            else:
+                unique_ad.attributes = ad.attributes
+
+        # Местоположение: объединяем, предпочитая более конкретные данные
+        if ad.location:
+            if not unique_ad.location:
+                unique_ad.location = ad.location
+            else:
+                # Обновляем компоненты адреса, если ad предоставляет более конкретные данные
+                if ad.location.city and not unique_ad.location.city:
+                    unique_ad.location.city = ad.location.city
+                if ad.location.district and not unique_ad.location.district:
+                    unique_ad.location.district = ad.location.district
+                if ad.location.address and (not unique_ad.location.address or len(ad.location.address) > len(unique_ad.location.address)):
+                    unique_ad.location.address = ad.location.address
+        
+        # Обновляем фотографии: добавляем новые, если их хешей еще нет
         existing_hashes = {photo.hash for photo in unique_ad.photos if photo.hash}
         for photo in ad.photos:
             if photo.hash and photo.hash not in existing_hashes:

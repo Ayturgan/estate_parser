@@ -11,6 +11,7 @@ import requests
 import io
 from PIL import Image
 from imagehash import average_hash
+from app.utils.duplicate_processor import DuplicateProcessor
 
 
 class ParserPipeline:
@@ -27,6 +28,23 @@ class DatabasePipeline:
     
     def __init__(self):
         pass
+
+    def open_spider(self, spider):
+        self.db_session = SessionLocal()
+
+    def close_spider(self, spider):
+        self.db_session.close()
+        try:
+            db = SessionLocal()
+            processor = DuplicateProcessor(db)
+            processor.process_new_ads()
+            db.commit()
+            spider.logger.info("Duplicate processing initiated after spider closed.")
+        except Exception as e:
+            spider.logger.error(f"Error initiating duplicate processing: {e}")
+            if db: db.rollback()
+        finally:
+            if db: db.close()
 
     def extract_price(self, price_data):
         """
@@ -198,13 +216,38 @@ class DatabasePipeline:
                 area = self.extract_area(adapter.get('area'))
                 floor, total_floors = self.extract_floor(adapter.get('floor'))
 
-                # Создаем объект локации, если есть данные
-                location = None
-                if any([adapter.get('city'), adapter.get('district'), adapter.get('address')]):
+                # ИСПРАВЛЕННАЯ ЛОГИКА ДЛЯ CITY, DISTRICT, ADDRESS
+                city = adapter.get('city')
+                district = adapter.get('district')
+                address_line = adapter.get('address')
+                
+                # Если city или district не были предоставлены спайдером напрямую,
+                # пытаемся разобрать их из полной строки адреса
+                if not city and not district and address_line:
+                    parts = [p.strip() for p in address_line.split(',')]
+                    if len(parts) >= 3:
+                        city = parts[0]
+                        district = parts[1]
+                        address_line = ', '.join(parts[2:])
+                    elif len(parts) == 2:
+                        city = parts[0]
+                        # Если есть только две части, предполагаем, что вторая часть - это адрес
+                        # и район отсутствует или включен в адрес
+                        address_line = parts[1]
+                    # Если меньше 2х частей, address_line остается как есть, city и district остаются None
+
+                # Ищем существующую локацию или создаем новую
+                location = session.query(DBLocation).filter_by(
+                    city=city,
+                    district=district,
+                    address=address_line
+                ).first()
+
+                if not location:
                     location = DBLocation(
-                        city=adapter.get('city'),
-                        district=adapter.get('district'),
-                        address=adapter.get('address')
+                        city=city,
+                        district=district,
+                        address=address_line
                     )
                     session.add(location)
                     session.flush()  # Чтобы получить location.id
@@ -347,7 +390,4 @@ class DatabasePipeline:
                 spider.logger.error(f"Item data: {dict(adapter)}")  # Логируем данные для отладки
 
         return item
-
-    def close_spider(self, spider):
-        spider.logger.info("DatabasePipelineFixed closed")
 
