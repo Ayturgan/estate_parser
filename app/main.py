@@ -16,7 +16,7 @@ from app.database import get_db
 from app import db_models
 from app.utils.transform import transform_ad
 from config import API_HOST, API_PORT
-from app.duplicate_processor import DuplicateProcessor
+from app.utils.duplicate_processor import DuplicateProcessor
 
 # Настройка логирования
 logging.basicConfig(

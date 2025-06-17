@@ -8,7 +8,6 @@ selectors:
   link: "div.top-info p.title a::attr(href)"
   price: "div.price-addition::text"
   price_usd: "div.price::text"
-  address: "xpath:normalize-space(//div[@class='address'])"
 
 pagination:
   next_page_selector: 'a.page-link[aria-label="Вперед"]::attr(href)'
@@ -19,6 +18,7 @@ detail:
   follow_link: true
   use_playwright: true
   fields:
+    address: "xpath:normalize-space(//div[@class='address'])"
     offer_type: "xpath:normalize-space(//div[contains(@class, 'info-row')][.//div[contains(@class, 'label') and contains(text(), 'Тип предложения')]]//div[contains(@class, 'info')])"
     series: "xpath:normalize-space(//div[contains(@class, 'info-row')][.//div[contains(@class, 'label') and contains(text(), 'Серия')]]//div[contains(@class, 'info')])"
     building: "xpath:normalize-space(//div[contains(@class, 'info-row')][.//div[contains(@class, 'label') and contains(text(), 'Дом')]]//div[contains(@class, 'info')])"

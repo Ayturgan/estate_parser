@@ -6,9 +6,26 @@ from ..parsers.loader import load_config, extract_value
 import asyncio
 import logging
 import time
+import random
 
 class GenericSpider(scrapy.Spider):
     name = "generic_scraper"
+    custom_settings = {
+        'PLAYWRIGHT_LAUNCH_OPTIONS': {
+            'headless': True,
+            'timeout': 60000,  # Увеличиваем таймаут запуска браузера
+        },
+        'PLAYWRIGHT_DEFAULT_NAVIGATION_TIMEOUT': 60000,  # Увеличиваем таймаут навигации
+        'DOWNLOAD_TIMEOUT': 60,  # Увеличиваем общий таймаут загрузки
+        'DOWNLOAD_MAXSIZE': 10485760,  # 10MB
+        'DOWNLOAD_WARNSIZE': 5242880,  # 5MB
+        'RETRY_TIMES': 3,  # Количество повторных попыток
+        'RETRY_HTTP_CODES': [500, 502, 503, 504, 522, 524, 408, 429, 403],
+        'CONCURRENT_REQUESTS': 2,  # Уменьшаем количество одновременных запросов
+        'CONCURRENT_REQUESTS_PER_DOMAIN': 2,
+        'DOWNLOAD_DELAY': 2,  # Задержка между запросами
+        'RANDOMIZE_DOWNLOAD_DELAY': True,
+    }
 
     def __init__(self, config=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -72,32 +89,22 @@ class GenericSpider(scrapy.Spider):
                         meta = {
                             "item": item_data,
                             "dont_cache": True,
-                        }
-                        
-                        if use_playwright:
-                            # Улучшенная конфигурация Playwright
-                            playwright_methods = [
+                            "playwright": True,
+                            "playwright_page_methods": [
                                 PageMethod("wait_for_load_state", "networkidle"),
-                            ]
-                            
-                            # Добавляем селектор ожидания, если он указан
-                            wait_selector = self.detail_config.get("wait_selector", "img.fotorama__img")
-                            if wait_selector:
-                                playwright_methods.append(
-                                    PageMethod("wait_for_selector", wait_selector, timeout=10000)
-                                )
-                            
-                            meta.update({
-                                "playwright": True,
-                                "playwright_page_methods": playwright_methods,
-                                "playwright_page_init_callback": self.page_init_callback,
-                            })
+                                PageMethod("wait_for_timeout", 2000),  # Ждем загрузки
+                            ],
+                            "playwright_page_init_callback": self.page_init_callback,
+                            "max_retries": 3,  # Максимальное количество попыток
+                            "retry_delay": 5000,  # Задержка между попытками
+                        }
 
-                        yield response.follow(
+                        yield scrapy.Request(
                             detail_url,
                             callback=self.parse_detail,
                             meta=meta,
-                            errback=self.handle_error
+                            errback=self.handle_error,
+                            dont_filter=True  # Разрешаем повторные запросы
                         )
                     except Exception as e:
                         self.logger.error(f"Error processing detail link '{item_data.get('link')}': {e}")
@@ -132,7 +139,8 @@ class GenericSpider(scrapy.Spider):
                     yield response.follow(
                         next_page, 
                         callback=self.parse,
-                        errback=self.handle_error
+                        errback=self.handle_error,
+                        dont_filter=True
                     )
                 else:
                     self.logger.info("No more pages to process")
@@ -176,28 +184,49 @@ class GenericSpider(scrapy.Spider):
             
         try:
             # Устанавливаем таймауты
-            await page.set_default_timeout(30000)  # 30 секунд
-            await page.set_default_navigation_timeout(30000)
+            await page.set_default_timeout(60000)  # 60 секунд
+            await page.set_default_navigation_timeout(60000)
             
             # Отключаем загрузку ненужных ресурсов для ускорения
-            def abort_resources(route):
-                route.abort()
+            await page.route("**/*.{png,jpg,jpeg,gif,svg,ico,woff,woff2}", lambda route: route.abort())
             
-            page.route("**/*.{png,jpg,jpeg,gif,svg,ico,woff,woff2}", abort_resources)
+            # Добавляем обработку ошибок
+            page.on("pageerror", lambda err: self.logger.error(f"Page error: {err}"))
+            page.on("requestfailed", lambda request: self.logger.warning(f"Request failed: {request.url}"))
+            
+            # Добавляем случайные задержки
+            await page.wait_for_timeout(random.randint(1000, 3000))
             
         except Exception as e:
             self.logger.warning(f"Error in page_init_callback: {e}")
 
     def handle_error(self, failure):
-        """Обработчик ошибок для запросов"""
+        """Обработчик ошибок"""
+        request = failure.request
         self.logger.error(f"Request failed: {failure.value}")
-        self.failed_items += 1
         
-        # Если это ошибка Playwright, логируем дополнительную информацию
-        if hasattr(failure.value, '__class__'):
-            error_type = failure.value.__class__.__name__
-            if 'playwright' in error_type.lower() or 'timeout' in error_type.lower():
-                self.logger.error(f"Playwright/Timeout error: {error_type}")
+        # Проверяем количество попыток
+        retries = request.meta.get('retry_times', 0)
+        max_retries = request.meta.get('max_retries', 3)
+        
+        if retries < max_retries:
+            # Увеличиваем счетчик попыток
+            request.meta['retry_times'] = retries + 1
+            
+            # Добавляем задержку перед повторной попыткой
+            delay = request.meta.get('retry_delay', 5000)
+            self.logger.info(f"Retrying request {request.url} (attempt {retries + 1}/{max_retries}) after {delay}ms")
+            
+            return scrapy.Request(
+                url=request.url,
+                callback=request.callback,
+                errback=request.errback,
+                meta=request.meta,
+                dont_filter=True
+            )
+        else:
+            self.logger.error(f"Max retries ({max_retries}) exceeded for {request.url}")
+            self.failed_items += 1
 
     def closed(self, reason):
         """Корректное закрытие спайдера с обработкой асинхронных задач"""

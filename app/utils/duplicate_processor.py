@@ -3,7 +3,6 @@ from typing import List, Dict, Tuple, Optional
 from datetime import datetime
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_
-from app.db_models import DBAd, DBUniqueAd, DBAdDuplicate, DBPhoto, DBUniquePhoto
 import numpy as np
 from sentence_transformers import SentenceTransformer
 from PIL import Image
@@ -11,6 +10,8 @@ import io
 import requests
 from imagehash import average_hash
 import logging
+
+from app.db_models import DBAd, DBUniqueAd, DBAdDuplicate, DBPhoto, DBUniquePhoto
 
 logger = logging.getLogger(__name__)
 
