@@ -66,13 +66,15 @@ class UniqueAd(BaseModel):
     confidence_score: Optional[float] = Field(None, description="Общая уверенность в уникальности")
     duplicates_count: int = Field(0, description="Количество найденных дубликатов")
     
+    base_ad_id: Optional[int] = None
+    
     created_at: Optional[datetime] = Field(None, description="Дата создания уникального объявления")
     updated_at: Optional[datetime] = Field(None, description="Дата последнего обновления")
 
 
 class Ad(BaseModel):
     id: Optional[int] = Field(None, description="Уникальный ID объявления (из базы)")
-    source_id: str = Field(..., description="ID объявления на сайте-источнике")
+    source_id: Optional[str] = None
     source_url: HttpUrl = Field(..., description="URL оригинального объявления на сайте-источнике")
     source_name: str = Field(..., description="Название сайта-источника (например, 'house.kg', 'lalafo.kg', 'stroka.kg')")
     title: str = Field(..., description="Заголовок объявления")
@@ -108,11 +110,11 @@ class Ad(BaseModel):
     published_at: Optional[datetime] = Field(None, description="Дата и время публикации объявления на источнике (ISO 8601)")
     parsed_at: Optional[datetime] = Field(None, description="Дата и время парсинга объявления")
 
-    is_vip: bool = Field(False, description="Флаг VIP-объявления")
-    is_realtor: bool = Field(False, description="Флаг, указывающий, является ли объявление от риэлтора")
+    is_vip: bool = Field(default=False, description="Флаг VIP-объявления")
+    is_realtor: bool = Field(default=False, description="Флаг, указывающий, является ли объявление от риэлтора")
     realtor_score: Optional[float] = Field(None, description="Оценка вероятности, что это риэлтор")
 
-    is_duplicate: bool = Field(False, description="Флаг, указывающий, является ли это объявление дубликатом")
-    is_processed: bool = Field(False, description="Флаг, указывающий, было ли обработано объявление на дубликаты")
+    is_duplicate: bool = Field(default=False, description="Флаг, указывающий, является ли это объявление дубликатом")
+    is_processed: bool = Field(default=False, description="Флаг, указывающий, было ли обработано объявление на дубликаты")
     processed_at: Optional[datetime] = Field(None, description="Дата и время обработки объявления на дубликаты")
     duplicate_info: Optional[DuplicateInfo] = Field(None, description="Информация о дубликате, если объявление является дубликатом")

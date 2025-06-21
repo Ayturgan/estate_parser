@@ -120,6 +120,9 @@ class DBUniqueAd(Base):
     location_id = Column(Integer, ForeignKey('locations.id', ondelete='CASCADE'), nullable=True, index=True)
     location = relationship("DBLocation", back_populates="unique_ads")
     
+    # Новое поле: ссылка на базовое объявление
+    base_ad_id = Column(Integer, ForeignKey('ads.id', ondelete='SET NULL'), nullable=True)
+    
     # Метаданные
     is_vip = Column(Boolean, default=False, index=True)
     is_realtor = Column(Boolean, default=False, index=True)

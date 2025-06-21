@@ -12,6 +12,9 @@ DB_NAME = os.getenv("DB_NAME", "real_estate_db")
 DB_USER = os.getenv("DB_USER", "real_estate_user")
 DB_PASSWORD = os.getenv("DB_PASSWORD", "admin123")
 
+
+REDIS_URL = os.getenv("REDIS_URL")
+
 # Настройки парсинга
 TARGET_SITE_URL = os.getenv("TARGET_SITE_URL")
 PARSING_INTERVAL = 3600  # интервал между запросами в секундах

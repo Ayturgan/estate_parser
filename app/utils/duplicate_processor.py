@@ -2,7 +2,7 @@ import hashlib
 from typing import List, Dict, Tuple, Optional
 from datetime import datetime
 from sqlalchemy.orm import Session
-from sqlalchemy import and_, or_
+from sqlalchemy import and_, or_, func
 import numpy as np
 from sentence_transformers import SentenceTransformer
 from PIL import Image
@@ -16,9 +16,10 @@ from app.db_models import DBAd, DBUniqueAd, DBAdDuplicate, DBPhoto, DBUniquePhot
 logger = logging.getLogger(__name__)
 
 class DuplicateProcessor:
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, realtor_threshold: int = 5):
         self.db = db
         self.text_model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
+        self.realtor_threshold = realtor_threshold  # Порог для определения риэлтора
         
     def process_new_ads(self, batch_size: int = 100):
         """Обрабатывает новые объявления на предмет дубликатов"""
@@ -32,6 +33,9 @@ class DuplicateProcessor:
         
         for ad in unprocessed_ads:
             self.process_ad(ad)
+            
+        # После обработки всех объявлений проверяем риэлторов
+        self.detect_realtors()
             
         self.db.commit()
     
@@ -47,13 +51,13 @@ class DuplicateProcessor:
         text_embeddings = self._get_text_embeddings(ad)
         logger.info("Got text embeddings")
         
-        # 3. Ищем похожие объявления
-        similar_ads = self._find_similar_ads(ad, ad_photo_hashes, text_embeddings)
-        logger.info(f"Found {len(similar_ads)} similar ads")
+        # 3. Ищем похожие УНИКАЛЬНЫЕ объявления
+        similar_unique_ads = self._find_similar_unique_ads(ad, ad_photo_hashes, text_embeddings)
+        logger.info(f"Found {len(similar_unique_ads)} similar unique ads")
         
-        if similar_ads:
-            # Нашли дубликат
-            unique_ad, similarity = similar_ads[0]
+        if similar_unique_ads:
+            # Нашли дубликат среди уникальных объявлений
+            unique_ad, similarity = similar_unique_ads[0]
             logger.info(f"Found duplicate with similarity {similarity:.2f}")
             self._handle_duplicate(ad, unique_ad, similarity)
         else:
@@ -70,67 +74,75 @@ class DuplicateProcessor:
         text = f"{ad.title} {ad.description}"
         return self.text_model.encode(text)
     
-    def _find_similar_ads(
+    def _find_similar_unique_ads(
         self,
         ad: DBAd,
         ad_photo_hashes: List[str],
         text_embeddings: np.ndarray
-    ) -> List[Tuple[DBAd, float]]:
-        """Ищет похожие объявления"""
+    ) -> List[Tuple[DBUniqueAd, float]]:
+        """Ищет похожие УНИКАЛЬНЫЕ объявления"""
         similar_ads = []
         
-        # Ищем по всем объявлениям, кроме текущего
-        for other_ad in self.db.query(DBAd).filter(DBAd.id != ad.id).all():
-            similarity = self._calculate_similarity(
-                ad, other_ad,
+        # Ищем среди уникальных объявлений
+        for unique_ad in self.db.query(DBUniqueAd).all():
+            similarity = self._calculate_similarity_with_unique(
+                ad, unique_ad,
                 ad_photo_hashes,
                 text_embeddings
             )
             
-            logger.info(f"Similarity with ad {other_ad.id}: {similarity:.2f}")
+            logger.info(f"Similarity with unique ad {unique_ad.id}: {similarity:.2f}")
             
-            if similarity > 0.8:  # Увеличиваем порог схожести
-                similar_ads.append((other_ad, similarity))
+            if similarity > 0.8:  # Порог схожести
+                similar_ads.append((unique_ad, similarity))
         
         return sorted(similar_ads, key=lambda x: x[1], reverse=True)
     
-    def _calculate_similarity(
+    def _calculate_similarity_with_unique(
         self,
         ad: DBAd,
-        other_ad: DBAd,
+        unique_ad: DBUniqueAd,
         ad_photo_hashes: List[str],
         text_embeddings: np.ndarray
     ) -> float:
-        """Вычисляет общую схожесть объявлений"""
-        # Получаем хэши фотографий второго объявления
-        other_photo_hashes = [photo.hash for photo in other_ad.photos if photo.hash]
+        """Вычисляет схожесть объявления с уникальным объявлением"""
+        # Получаем хэши фотографий уникального объявления
+        unique_photo_hashes = [photo.hash for photo in unique_ad.photos if photo.hash]
         
         # Схожесть фото
         photo_sim = self._calculate_photo_similarity(
             ad_photo_hashes,
-            other_photo_hashes
+            unique_photo_hashes
         )
         
         # Схожесть текста
-        other_text_embeddings = self._get_text_embeddings(other_ad)
-        text_sim = self._calculate_text_similarity(
-            text_embeddings,
-            other_text_embeddings
-        )
+        if unique_ad.text_embeddings:
+            unique_text_embeddings = np.array(unique_ad.text_embeddings)
+            text_sim = self._calculate_text_similarity(
+                text_embeddings,
+                unique_text_embeddings
+            )
+        else:
+            # Если эмбеддинги не сохранены, вычисляем заново
+            unique_text_embeddings = self._get_text_embeddings_from_unique(unique_ad)
+            text_sim = self._calculate_text_similarity(
+                text_embeddings,
+                unique_text_embeddings
+            )
         
         # Схожесть контактов
         contact_sim = self._calculate_contact_similarity(
             ad.phone_numbers,
-            other_ad.phone_numbers
+            unique_ad.phone_numbers
         )
         
         # Схожесть адресов
-        address_sim = self._calculate_address_similarity(ad, other_ad)
+        address_sim = self._calculate_address_similarity_with_unique(ad, unique_ad)
         
         # Общая схожесть (взвешенная сумма)
         weights = {
-            'photo': 0.5,  # Увеличиваем вес фото
-            'text': 0.3,   # Увеличиваем вес текста
+            'photo': 0.5,
+            'text': 0.3,
             'contact': 0.1,
             'address': 0.1
         }
@@ -142,7 +154,7 @@ class DuplicateProcessor:
             address_sim * weights['address']
         )
         
-        logger.info(f"Similarity scores for ad {ad.id} vs {other_ad.id}:")
+        logger.info(f"Similarity scores for ad {ad.id} vs unique ad {unique_ad.id}:")
         logger.info(f"  Photo: {photo_sim:.2f}")
         logger.info(f"  Text: {text_sim:.2f}")
         logger.info(f"  Contact: {contact_sim:.2f}")
@@ -150,6 +162,11 @@ class DuplicateProcessor:
         logger.info(f"  Overall: {overall_sim:.2f}")
         
         return overall_sim
+    
+    def _get_text_embeddings_from_unique(self, unique_ad: DBUniqueAd) -> np.ndarray:
+        """Получает эмбеддинги текста уникального объявления"""
+        text = f"{unique_ad.title} {unique_ad.description}"
+        return self.text_model.encode(text)
     
     def _calculate_photo_similarity(
         self,
@@ -204,13 +221,13 @@ class DuplicateProcessor:
         
         return matches / total if total > 0 else 0.0
     
-    def _calculate_address_similarity(
+    def _calculate_address_similarity_with_unique(
         self,
         ad: DBAd,
-        other_ad: DBAd
+        unique_ad: DBUniqueAd
     ) -> float:
-        """Вычисляет схожесть адресов"""
-        if not ad.location or not other_ad.location:
+        """Вычисляет схожесть адресов между DBAd и DBUniqueAd"""
+        if not ad.location or not unique_ad.location:
             return 0.0
             
         # Сравниваем компоненты адреса
@@ -220,9 +237,9 @@ class DuplicateProcessor:
             ad.location.address
         ]
         components2 = [
-            other_ad.location.city,
-            other_ad.location.district,
-            other_ad.location.address
+            unique_ad.location.city,
+            unique_ad.location.district,
+            unique_ad.location.address
         ]
         
         # Считаем совпадения
@@ -234,11 +251,11 @@ class DuplicateProcessor:
     def _handle_duplicate(
         self,
         ad: DBAd,
-        unique_ad: DBAd,
+        unique_ad: DBUniqueAd,
         similarity: float
     ):
         """Обрабатывает найденный дубликат"""
-        # Получаем хэши фотографий из связанных фотографий
+        # Получаем хэши фотографий
         ad_photo_hashes = [photo.hash for photo in ad.photos if photo.hash]
         unique_ad_photo_hashes = [photo.hash for photo in unique_ad.photos if photo.hash]
         
@@ -252,27 +269,29 @@ class DuplicateProcessor:
             ),
             text_similarity=self._calculate_text_similarity(
                 self._get_text_embeddings(ad),
-                self._get_text_embeddings(unique_ad)
+                np.array(unique_ad.text_embeddings) if unique_ad.text_embeddings else self._get_text_embeddings_from_unique(unique_ad)
             ),
             contact_similarity=self._calculate_contact_similarity(
                 ad.phone_numbers,
                 unique_ad.phone_numbers
             ),
-            address_similarity=self._calculate_address_similarity(ad, unique_ad),
+            address_similarity=self._calculate_address_similarity_with_unique(ad, unique_ad),
             overall_similarity=similarity
         )
         
         self.db.add(duplicate)
         
-        # Отмечаем объявление как дубликат
+        # ИСПРАВЛЕНО: Помечаем объявление как дубликат
         ad.is_duplicate = True
         ad.duplicate_info = duplicate
         
-        # Обновляем счетчик дубликатов
-        unique_ad.duplicates_count = getattr(unique_ad, 'duplicates_count', 0) + 1
+        # ИСПРАВЛЕНО: Увеличиваем счетчик дубликатов (не включая базовое объявление)
+        unique_ad.duplicates_count = (unique_ad.duplicates_count or 0) + 1
         
         # Обновляем уникальное объявление, если есть новые данные
         self._update_unique_ad(unique_ad, ad)
+        
+        logger.info(f"Ad {ad.id} marked as duplicate of unique ad {unique_ad.id}. Duplicates count: {unique_ad.duplicates_count}")
     
     def _create_unique_ad(
         self,
@@ -308,7 +327,9 @@ class DuplicateProcessor:
             realtor_score=ad.realtor_score,
             attributes=ad.attributes,
             text_embeddings=text_embeddings.tolist(),
-            confidence_score=1.0
+            confidence_score=1.0,
+            duplicates_count=0,  # ИСПРАВЛЕНО: Начинаем с 0 дубликатов
+            base_ad_id=ad.id  # ДОБАВЛЕНО: Ссылка на базовое объявление (если поле есть в модели)
         )
         
         self.db.add(unique_ad)
@@ -323,9 +344,11 @@ class DuplicateProcessor:
             )
             self.db.add(unique_photo)
             
-        # Оригинальное объявление не является дубликатом (оно является основой для уникального)
+        # ИСПРАВЛЕНО: Исходное объявление НЕ является дубликатом
         ad.is_duplicate = False
-        # ad.duplicate_info не устанавливается здесь, так как это не дубликат
+        # НЕ создаем DBAdDuplicate для базового объявления
+        
+        logger.info(f"Created new unique ad {unique_ad.id} from base ad {ad.id}. Duplicates count: {unique_ad.duplicates_count}")
     
     def _update_unique_ad(self, unique_ad: DBUniqueAd, ad: DBAd):
         """Обновляет уникальное объявление новыми данными"""
@@ -420,4 +443,277 @@ class DuplicateProcessor:
                     hash=photo.hash,
                     unique_ad_id=unique_ad.id
                 )
-                self.db.add(unique_photo) 
+                self.db.add(unique_photo)
+        
+        # Обновляем текстовые эмбеддинги, если они изменились
+        if ad.title or ad.description:
+            new_text_embeddings = self._get_text_embeddings_from_unique(unique_ad)
+            unique_ad.text_embeddings = new_text_embeddings.tolist()
+
+    def get_base_ad_for_unique(self, unique_ad_id: int) -> Optional[DBAd]:
+        """Получает базовое объявление для уникального объявления"""
+        unique_ad = self.db.query(DBUniqueAd).filter(DBUniqueAd.id == unique_ad_id).first()
+        if not unique_ad:
+            return None
+            
+        # Если есть поле base_ad_id
+        if hasattr(unique_ad, 'base_ad_id') and unique_ad.base_ad_id:
+            return self.db.query(DBAd).filter(DBAd.id == unique_ad.base_ad_id).first()
+        
+        # Альтернативный способ: найти объявление, которое не является дубликатом
+        # и имеет те же характеристики что и уникальное
+        base_ad = self.db.query(DBAd).filter(
+            and_(
+                DBAd.is_duplicate == False,
+                DBAd.is_processed == True,
+                DBAd.location_id == unique_ad.location_id
+            )
+        ).first()
+        
+        return base_ad
+
+    def get_all_ads_for_unique(self, unique_ad_id: int) -> Dict[str, List[DBAd]]:
+        """Получает все объявления (базовое + дубликаты) для уникального объявления"""
+        # Получаем базовое объявление
+        base_ad = self.get_base_ad_for_unique(unique_ad_id)
+        
+        # Получаем все дубликаты
+        duplicates = self.db.query(DBAdDuplicate).filter(
+            DBAdDuplicate.unique_ad_id == unique_ad_id
+        ).all()
+        
+        duplicate_ads = []
+        for dup in duplicates:
+            ad = self.db.query(DBAd).filter(DBAd.id == dup.original_ad_id).first()
+            if ad:
+                duplicate_ads.append(ad)
+        
+        return {
+            'base_ad': [base_ad] if base_ad else [],
+            'duplicates': duplicate_ads,
+            'total_count': (1 if base_ad else 0) + len(duplicate_ads)
+        }
+
+    def detect_realtors(self):
+        """Обнаруживает риэлторов по повторяющимся номерам телефонов"""
+        logger.info("Starting realtor detection process")
+        
+        # Получаем статистику по номерам телефонов из уникальных объявлений
+        phone_stats = self._get_phone_statistics()
+        
+        # Получаем статистику по хэшам фотографий
+        photo_stats = self._get_photo_statistics()
+        
+        # Обрабатываем каждый номер телефона
+        for phone, unique_ad_ids in phone_stats.items():
+            if len(unique_ad_ids) >= self.realtor_threshold:
+                logger.info(f"Phone {phone} found in {len(unique_ad_ids)} unique ads - marking as realtor")
+                self._mark_phone_as_realtor(phone, unique_ad_ids, len(unique_ad_ids))
+        
+        # Обрабатываем повторяющиеся фотографии
+        for photo_hash, unique_ad_ids in photo_stats.items():
+            if len(unique_ad_ids) >= self.realtor_threshold:
+                logger.info(f"Photo hash {photo_hash} found in {len(unique_ad_ids)} unique ads - marking as realtor")
+                self._mark_photo_hash_as_realtor(photo_hash, unique_ad_ids, len(unique_ad_ids))
+        
+        logger.info("Realtor detection completed")
+    
+    def _get_phone_statistics(self) -> Dict[str, List[int]]:
+        """Получает статистику по номерам телефонов"""
+        phone_stats = {}
+        
+        # Получаем все уникальные объявления с номерами телефонов
+        unique_ads = self.db.query(DBUniqueAd).filter(
+            DBUniqueAd.phone_numbers.isnot(None)
+        ).all()
+        
+        for unique_ad in unique_ads:
+            if unique_ad.phone_numbers:
+                for phone in unique_ad.phone_numbers:
+                    # Нормализуем номер телефона
+                    normalized_phone = self._normalize_phone(phone)
+                    if normalized_phone:
+                        if normalized_phone not in phone_stats:
+                            phone_stats[normalized_phone] = []
+                        phone_stats[normalized_phone].append(unique_ad.id)
+        
+        # Удаляем дубликаты в списках
+        for phone in phone_stats:
+            phone_stats[phone] = list(set(phone_stats[phone]))
+        
+        return phone_stats
+    
+    def _get_photo_statistics(self) -> Dict[str, List[int]]:
+        """Получает статистику по хэшам фотографий"""
+        photo_stats = {}
+        
+        # Получаем все фотографии уникальных объявлений
+        unique_photos = self.db.query(DBUniquePhoto).filter(
+            DBUniquePhoto.hash.isnot(None)
+        ).all()
+        
+        for photo in unique_photos:
+            if photo.hash:
+                if photo.hash not in photo_stats:
+                    photo_stats[photo.hash] = []
+                photo_stats[photo.hash].append(photo.unique_ad_id)
+        
+        # Удаляем дубликаты в списках
+        for photo_hash in photo_stats:
+            photo_stats[photo_hash] = list(set(photo_stats[photo_hash]))
+        
+        return photo_stats
+    
+    def _normalize_phone(self, phone: str) -> str:
+        """Нормализует номер телефона"""
+        if not phone:
+            return ""
+        
+        # Удаляем все символы кроме цифр
+        normalized = ''.join(filter(str.isdigit, phone))
+        
+        # Убираем короткие номера (меньше 7 цифр)
+        if len(normalized) < 7:
+            return ""
+        
+        # Приводим к единому формату (убираем код страны если есть)
+        if len(normalized) >= 10:
+            # Берем последние 10 цифр (или 7 для коротких номеров)
+            return normalized[-10:] if len(normalized) >= 10 else normalized[-7:]
+        
+        return normalized
+    
+    def _mark_phone_as_realtor(self, phone: str, unique_ad_ids: List[int], count: int):
+        """Помечает объявления с определенным номером телефона как риэлторские"""
+        # Обновляем все уникальные объявления с этим номером
+        unique_ads = self.db.query(DBUniqueAd).filter(
+            DBUniqueAd.id.in_(unique_ad_ids)
+        ).all()
+        
+        for unique_ad in unique_ads:
+            unique_ad.is_realtor = True
+            # Устанавливаем риэлторский счет равным количеству объявлений
+            unique_ad.realtor_score = max(unique_ad.realtor_score or 0, count)
+            
+            logger.info(f"Marked unique ad {unique_ad.id} as realtor (phone: {phone}, count: {count})")
+        
+        # Также помечаем все связанные исходные объявления (базовые + дубликаты)
+        for unique_ad_id in unique_ad_ids:
+            all_ads = self.get_all_ads_for_unique(unique_ad_id)
+            
+            # Помечаем базовое объявление
+            for base_ad in all_ads['base_ad']:
+                base_ad.is_realtor = True
+                base_ad.realtor_score = max(base_ad.realtor_score or 0, count)
+            
+            # Помечаем дубликаты
+            for duplicate_ad in all_ads['duplicates']:
+                duplicate_ad.is_realtor = True
+                duplicate_ad.realtor_score = max(duplicate_ad.realtor_score or 0, count)
+    
+    def _mark_photo_hash_as_realtor(self, photo_hash: str, unique_ad_ids: List[int], count: int):
+        """Помечает объявления с определенным хэшем фотографии как риэлторские"""
+        # Обновляем все уникальные объявления с этим хэшем фото
+        unique_ads = self.db.query(DBUniqueAd).filter(
+            DBUniqueAd.id.in_(unique_ad_ids)
+        ).all()
+        
+        for unique_ad in unique_ads:
+            unique_ad.is_realtor = True
+            # Устанавливаем риэлторский счет равным количеству объявлений
+            unique_ad.realtor_score = max(unique_ad.realtor_score or 0, count)
+            
+            logger.info(f"Marked unique ad {unique_ad.id} as realtor (photo hash: {photo_hash}, count: {count})")
+        
+        # Также помечаем все связанные исходные объявления (базовые + дубликаты)
+        for unique_ad_id in unique_ad_ids:
+            all_ads = self.get_all_ads_for_unique(unique_ad_id)
+            
+            # Помечаем базовое объявление
+            for base_ad in all_ads['base_ad']:
+                base_ad.is_realtor = True
+                base_ad.realtor_score = max(base_ad.realtor_score or 0, count)
+            
+            # Помечаем дубликаты
+            for duplicate_ad in all_ads['duplicates']:
+                duplicate_ad.is_realtor = True
+                duplicate_ad.realtor_score = max(duplicate_ad.realtor_score or 0, count)
+    
+    def get_realtor_statistics(self) -> Dict[str, int]:
+        """Возвращает статистику по риэлторам"""
+        # Количество уникальных объявлений от риэлторов
+        realtor_unique_ads = self.db.query(DBUniqueAd).filter(
+            DBUniqueAd.is_realtor == True
+        ).count()
+        
+        # Количество исходных объявлений от риэлторов
+        realtor_original_ads = self.db.query(DBAd).filter(
+            DBAd.is_realtor == True
+        ).count()
+        
+        # Общее количество уникальных объявлений
+        total_unique_ads = self.db.query(DBUniqueAd).count()
+        
+        # Общее количество исходных объявлений
+        total_original_ads = self.db.query(DBAd).count()
+        
+        return {
+            'realtor_unique_ads': realtor_unique_ads,
+            'realtor_original_ads': realtor_original_ads,
+            'total_unique_ads': total_unique_ads,
+            'total_original_ads': total_original_ads,
+            'realtor_percentage_unique': (realtor_unique_ads / total_unique_ads * 100) if total_unique_ads > 0 else 0,
+            'realtor_percentage_original': (realtor_original_ads / total_original_ads * 100) if total_original_ads > 0 else 0
+        }
+    
+    def reset_realtor_flags(self):
+        """Сбрасывает все флаги риэлторов (для повторного анализа)"""
+        logger.info("Resetting all realtor flags")
+        
+        # Сбрасываем флаги в уникальных объявлениях
+        self.db.query(DBUniqueAd).update({
+            'is_realtor': False,
+            'realtor_score': 0
+        })
+        
+        # Сбрасываем флаги в исходных объявлениях
+        self.db.query(DBAd).update({
+            'is_realtor': False,
+            'realtor_score': 0
+        })
+        
+        self.db.commit()
+        logger.info("All realtor flags reset")
+    
+    def get_duplicate_statistics(self) -> Dict[str, int]:
+        """Возвращает статистику по дубликатам"""
+        # Общее количество уникальных объявлений
+        total_unique_ads = self.db.query(DBUniqueAd).count()
+        
+        # Общее количество исходных объявлений
+        total_original_ads = self.db.query(DBAd).count()
+        
+        # Количество дубликатов (исходных объявлений, помеченных как дубликаты)
+        duplicate_ads = self.db.query(DBAd).filter(DBAd.is_duplicate == True).count()
+        
+        # Количество базовых объявлений (не дубликаты)
+        base_ads = self.db.query(DBAd).filter(DBAd.is_duplicate == False).count()
+        
+        # Количество уникальных объявлений с дубликатами
+        unique_ads_with_duplicates = self.db.query(DBUniqueAd).filter(
+            DBUniqueAd.duplicates_count > 0
+        ).count()
+        
+        # Среднее количество дубликатов на уникальное объявление
+        avg_duplicates = self.db.query(func.avg(DBUniqueAd.duplicates_count)).scalar() or 0
+        
+        return {
+            'total_unique_ads': total_unique_ads,
+            'total_original_ads': total_original_ads,
+            'base_ads': base_ads,
+            'duplicate_ads': duplicate_ads,
+            'unique_ads_with_duplicates': unique_ads_with_duplicates,
+            'avg_duplicates_per_unique': float(avg_duplicates),
+            'deduplication_ratio': (duplicate_ads / total_original_ads * 100) if total_original_ads > 0 else 0
+        }
+

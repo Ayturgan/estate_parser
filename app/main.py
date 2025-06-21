@@ -1,22 +1,26 @@
-from fastapi import FastAPI, HTTPException, status, Depends, Query
-from typing import List, Dict, Optional
+from fastapi import FastAPI, HTTPException, status, Depends, Query, BackgroundTasks
+from fastapi.middleware.cors import CORSMiddleware
+from typing import List, Dict, Optional, Union
 from datetime import datetime
-import uuid
-from sqlalchemy.orm import Session, joinedload, subqueryload
-from sqlalchemy import and_, or_
-from pydantic import BaseModel
+from sqlalchemy.orm import Session, joinedload, selectinload
+from sqlalchemy import and_, or_, func, desc
+from pydantic import BaseModel, Field, validator
 import logging
-import requests
-import io
-from PIL import Image
-from imagehash import average_hash
+import asyncio
+import aiohttp
+from contextlib import asynccontextmanager
+import redis
+import json
+from cachetools import TTLCache
 
-from app.models import Ad, Location, Photo
+from app.models import Ad, Location, Photo, UniqueAd
 from app.database import get_db
 from app import db_models
-from app.utils.transform import transform_ad
-from config import API_HOST, API_PORT
+from app.utils.transform import transform_ad, transform_unique_ad
+from config import API_HOST, API_PORT, REDIS_URL
 from app.utils.duplicate_processor import DuplicateProcessor
+from app.services.photo_service import PhotoService
+from app.services.duplicate_service import DuplicateService
 
 # Настройка логирования
 logging.basicConfig(
@@ -25,53 +29,161 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Кэш в памяти для быстрого доступа
+memory_cache = TTLCache(maxsize=1000, ttl=300)  # 5 минут
+
+# Redis для распределенного кэша
+try:
+    redis_client = redis.from_url(REDIS_URL) if REDIS_URL else None
+except:
+    redis_client = None
+    logger.warning("Redis not available, using memory cache only")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Управление жизненным циклом приложения"""
+    # Startup
+    logger.info("Starting Real Estate API...")
+    yield
+    # Shutdown
+    logger.info("Shutting down Real Estate API...")
+
 app = FastAPI(
-    title="Real Estate Parser API",
-    description="API for parsing real estate listings and detecting duplicates.",
-    version="0.1.0"
+    title="Real Estate Aggregator API",
+    description="API for aggregated real estate listings with duplicate detection and clustering.",
+    version="1.0.0",
+    lifespan=lifespan
+)
+
+# CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # В продакшене указать конкретные домены
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Модели для ответов API
-class PaginatedResponse(BaseModel):
+class PaginatedUniqueAdsResponse(BaseModel):
+    total: int
+    offset: int
+    limit: int
+    items: List[UniqueAd]
+
+class PaginatedAdsResponse(BaseModel):
     total: int
     offset: int
     limit: int
     items: List[Ad]
 
-# Базовые эндпоинты
-@app.get("/", response_model=Dict[str, str])
-async def read_root():
-    return {"message": "Welcome to the Real Estate Parser API!"}
+class AdSource(BaseModel):
+    id: int
+    source_url: str
+    source_name: str
+    published_at: Optional[datetime]
+    is_base: bool = False
 
-@app.get("/status", response_model=Dict[str, str])
-async def get_status():
-    return {"status": "running", "version": app.version}
+class DuplicateInfo(BaseModel):
+    unique_ad_id: int
+    total_duplicates: int
+    base_ad: Optional[Ad]
+    duplicates: List[Ad]
+    sources: List[AdSource]
+
+class StatsResponse(BaseModel):
+    total_unique_ads: int
+    total_original_ads: int
+    total_duplicates: int
+    realtor_ads: int
+    deduplication_ratio: float
+
+# Валидация и модели запросов
+class AdCreateRequest(BaseModel):
+    source_id: Optional[str] = None
+    source_url: str
+    source_name: str
+    title: str
+    description: Optional[str] = None
+    price: Optional[float] = None
+    price_original: Optional[str] = None
+    currency: Optional[str] = "USD"
+    rooms: Optional[int] = None
+    area_sqm: Optional[float] = None
+    floor: Optional[int] = None
+    total_floors: Optional[int] = None
+    series: Optional[str] = None
+    building_type: Optional[str] = None
+    condition: Optional[str] = None
+    repair: Optional[str] = None
+    furniture: Optional[str] = None
+    heating: Optional[str] = None
+    hot_water: Optional[str] = None
+    gas: Optional[str] = None
+    ceiling_height: Optional[float] = None
+    phone_numbers: Optional[List[str]] = None
+    location: Optional[Location] = None
+    photos: Optional[List[Photo]] = None
+    attributes: Optional[Dict] = {}
+    published_at: Optional[str] = None
+
+    @validator('source_url')
+    def validate_source_url(cls, v):
+        if not v or not v.startswith(('http://', 'https://')):
+            raise ValueError('source_url must be a valid HTTP/HTTPS URL')
+        return v
+
+    @validator('phone_numbers')
+    def validate_phone_numbers(cls, v):
+        if v:
+            for phone in v:
+                if not phone or len(phone.strip()) < 7:
+                    raise ValueError('Invalid phone number format')
+        return v
+
+# Сервисы
+photo_service = PhotoService()
+duplicate_service = DuplicateService()
 
 # Вспомогательные функции
-def get_location_query(location: Optional[Location] = None):
-    """Создает запрос для поиска локации"""
-    if not location:
-        return None
+async def get_from_cache(key: str) -> Optional[str]:
+    """Получение данных из кэша"""
+    # Сначала проверяем память
+    if key in memory_cache:
+        return memory_cache[key]
     
-    return and_(
-        db_models.DBLocation.city == location.city if location.city else True,
-        db_models.DBLocation.district == location.district if location.district else True,
-        db_models.DBLocation.address == location.address if location.address else True
-    )
+    # Затем Redis
+    if redis_client:
+        try:
+            return await redis_client.get(key)
+        except:
+            pass
+    return None
 
-def build_ads_query(
+async def set_cache(key: str, value: str, ttl: int = 300):
+    """Сохранение данных в кэш"""
+    # Сохраняем в память
+    memory_cache[key] = value
+    
+    # Сохраняем в Redis
+    if redis_client:
+        try:
+            await redis_client.setex(key, ttl, value)
+        except:
+            pass
+
+def build_unique_ads_query(
     db: Session,
     filters: Dict = None,
     include_relations: bool = True
 ):
-    """Создает базовый запрос для объявлений с фильтрами"""
-    query = db.query(db_models.DBAd)
+    """Создает оптимизированный запрос для уникальных объявлений"""
+    query = db.query(db_models.DBUniqueAd)
     
     if include_relations:
         query = query.options(
-            joinedload(db_models.DBAd.location),
-            joinedload(db_models.DBAd.photos),
-            subqueryload(db_models.DBAd.duplicate_info)
+            selectinload(db_models.DBUniqueAd.location),
+            selectinload(db_models.DBUniqueAd.photos)
         )
     
     if not filters:
@@ -79,184 +191,102 @@ def build_ads_query(
         
     # Применяем фильтры
     if filters.get('is_realtor') is not None:
-        query = query.filter(db_models.DBAd.is_realtor == filters['is_realtor'])
+        query = query.filter(db_models.DBUniqueAd.is_realtor == filters['is_realtor'])
     
     if filters.get('city'):
-        query = query.join(db_models.DBAd.location).filter(db_models.DBLocation.city == filters['city'])
+        query = query.join(db_models.DBUniqueAd.location).filter(
+            db_models.DBLocation.city == filters['city']
+        )
     
     if filters.get('district'):
-        query = query.join(db_models.DBAd.location).filter(db_models.DBLocation.district == filters['district'])
+        query = query.join(db_models.DBUniqueAd.location).filter(
+            db_models.DBLocation.district == filters['district']
+        )
     
     if filters.get('min_price') is not None:
-        query = query.filter(db_models.DBAd.price >= filters['min_price'])
+        query = query.filter(db_models.DBUniqueAd.price >= filters['min_price'])
     
     if filters.get('max_price') is not None:
-        query = query.filter(db_models.DBAd.price <= filters['max_price'])
+        query = query.filter(db_models.DBUniqueAd.price <= filters['max_price'])
     
     if filters.get('min_area') is not None:
-        query = query.filter(db_models.DBAd.area_sqm >= filters['min_area'])
+        query = query.filter(db_models.DBUniqueAd.area_sqm >= filters['min_area'])
     
     if filters.get('max_area') is not None:
-        query = query.filter(db_models.DBAd.area_sqm <= filters['max_area'])
+        query = query.filter(db_models.DBUniqueAd.area_sqm <= filters['max_area'])
     
     if filters.get('rooms') is not None:
-        query = query.filter(db_models.DBAd.rooms == filters['rooms'])
+        query = query.filter(db_models.DBUniqueAd.rooms == filters['rooms'])
     
-    if filters.get('source_name'):
-        query = query.filter(db_models.DBAd.source_name == filters['source_name'])
-    
-    if filters.get('series'):
-        query = query.filter(db_models.DBAd.series == filters['series'])
-    
-    if filters.get('repair'):
-        query = query.filter(db_models.DBAd.repair == filters['repair'])
-    
-    if filters.get('heating'):
-        query = query.filter(db_models.DBAd.heating == filters['heating'])
-    
-    if filters.get('furniture'):
-        query = query.filter(db_models.DBAd.furniture == filters['furniture'])
+    if filters.get('has_duplicates'):
+        if filters['has_duplicates']:
+            query = query.filter(db_models.DBUniqueAd.duplicates_count > 0)
+        else:
+            query = query.filter(db_models.DBUniqueAd.duplicates_count == 0)
     
     return query
 
-# Основные эндпоинты
-@app.post("/ads", response_model=Ad, status_code=status.HTTP_201_CREATED)
-async def create_ad(ad: Ad, db: Session = Depends(get_db)):
-    """Создает новое объявление"""
+# Основные эндпоинты согласно ТЗ
+
+@app.get("/", response_model=Dict[str, str])
+async def read_root():
+    """Корневой эндпоинт"""
+    return {
+        "message": "Real Estate Aggregator API",
+        "version": app.version,
+        "docs": "/docs"
+    }
+
+@app.get("/status", response_model=Dict[str, Union[str, int]])
+async def get_status(db: Session = Depends(get_db)):
+    """Статус системы"""
     try:
-        if not ad.id:
-            ad.id = str(uuid.uuid4())
-
-        if db.query(db_models.DBAd).filter_by(id=ad.id).first():
-            raise HTTPException(status_code=409, detail="Ad with this ID already exists")
-
-        ad.parsed_at = datetime.now().isoformat()
-
-        # Создаем или получаем локацию
-        db_location = None
-        if ad.location:
-            location_query = get_location_query(ad.location)
-            if location_query:
-                db_location = db.query(db_models.DBLocation).filter(location_query).first()
-            if not db_location:
-                db_location = db_models.DBLocation(
-                    city=ad.location.city,
-                    district=ad.location.district,
-                    address=ad.location.address
-                )
-                db.add(db_location)
-                db.flush()
-
-        # Создаем объявление
-        db_ad = db_models.DBAd(
-            id=ad.id,
-            source_id=ad.source_id,
-            source_url=str(ad.source_url),
-            source_name=ad.source_name,
-            title=ad.title,
-            description=ad.description,
-            price=ad.price,
-            price_original=ad.price_original,
-            currency=ad.currency,
-            rooms=ad.rooms,
-            area_sqm=ad.area_sqm,
-            floor=ad.floor,
-            total_floors=ad.total_floors,
-            series=ad.series,
-            building_type=ad.building_type,
-            condition=ad.condition,
-            repair=ad.repair,
-            furniture=ad.furniture,
-            heating=ad.heating,
-            hot_water=ad.hot_water,
-            gas=ad.gas,
-            ceiling_height=ad.ceiling_height,
-            phone_numbers=ad.phone_numbers,
-            location_id=db_location.id if db_location else None,
-            is_vip=ad.is_vip,
-            is_realtor=ad.is_realtor,
-            realtor_score=ad.realtor_score,
-            attributes=ad.attributes,
-            published_at=datetime.fromisoformat(ad.published_at) if ad.published_at else None,
-            parsed_at=datetime.fromisoformat(ad.parsed_at),
-            is_duplicate=False,
-            is_processed=False
-        )
+        # Быстрая проверка БД
+        total_unique = db.query(func.count(db_models.DBUniqueAd.id)).scalar()
+        total_ads = db.query(func.count(db_models.DBAd.id)).scalar()
         
-        db.add(db_ad)
-        db.flush()  # Чтобы получить id
-        
-        # Создаем фотографии и вычисляем их хэши
-        if ad.photos:
-            for photo in ad.photos:
-                try:
-                    # Скачиваем фото
-                    response = requests.get(photo.url, timeout=10)
-                    img = Image.open(io.BytesIO(response.content))
-                    
-                    # Вычисляем хэш
-                    photo_hash = str(average_hash(img))
-                    
-                    # Создаем запись в базе
-                    db_photo = db_models.DBPhoto(
-                        url=str(photo.url),
-                        hash=photo_hash,
-                        ad_id=db_ad.id
-                    )
-                    db.add(db_photo)
-                    logger.info(f"Computed hash for photo {photo.url}: {photo_hash}")
-                except Exception as e:
-                    logger.error(f"Error processing photo {photo.url}: {e}")
-                    # Создаем запись без хэша
-                    db_photo = db_models.DBPhoto(
-                        url=str(photo.url),
-                        ad_id=db_ad.id
-                    )
-                    db.add(db_photo)
-        
-        # Сохраняем изменения
-        db.commit()
-        db.refresh(db_ad)
-        
-        # Проверяем на дубликаты
-        processor = DuplicateProcessor(db)
-        processor.process_ad(db_ad)
-        db.commit()
-        
-        return transform_ad(db_ad)
-        
+        return {
+            "status": "healthy",
+            "version": app.version,
+            "total_unique_ads": total_unique,
+            "total_ads": total_ads,
+            "cache_status": "redis" if redis_client else "memory_only"
+        }
     except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Health check failed: {e}")
+        return {
+            "status": "unhealthy",
+            "error": str(e)
+        }
 
-@app.get("/ads/{ad_id}", response_model=Ad)
-async def get_ad(ad_id: str, db: Session = Depends(get_db)):
-    db_ad = build_ads_query(db, include_relations=True).filter(db_models.DBAd.id == ad_id).first()
-    
-    if not db_ad:
-        raise HTTPException(status_code=404, detail="Ad not found")
-    
-    return transform_ad(db_ad)
-
-@app.get("/ads/", response_model=PaginatedResponse)
-async def get_all_ads(
+# ТЗ №5: GET /ads/unique — список всех уникальных объявлений
+@app.get("/ads/unique", response_model=PaginatedUniqueAdsResponse)
+async def get_unique_ads(
     db: Session = Depends(get_db),
-    is_realtor: Optional[bool] = None,
-    city: Optional[str] = None,
-    district: Optional[str] = None,
-    min_price: Optional[float] = None,
-    max_price: Optional[float] = None,
-    min_area: Optional[float] = None,
-    max_area: Optional[float] = None,
-    rooms: Optional[int] = None,
-    source_name: Optional[str] = None,
-    series: Optional[str] = None,
-    repair: Optional[str] = None,
-    heating: Optional[str] = None,
-    furniture: Optional[str] = None,
-    limit: int = Query(100, ge=1, le=1000),
-    offset: int = Query(0, ge=0)
+    is_realtor: Optional[bool] = Query(None, description="Фильтр по риэлторам"),
+    city: Optional[str] = Query(None, description="Город"),
+    district: Optional[str] = Query(None, description="Район"),
+    min_price: Optional[float] = Query(None, ge=0, description="Минимальная цена"),
+    max_price: Optional[float] = Query(None, ge=0, description="Максимальная цена"),
+    min_area: Optional[float] = Query(None, ge=0, description="Минимальная площадь"),
+    max_area: Optional[float] = Query(None, ge=0, description="Максимальная площадь"),
+    rooms: Optional[int] = Query(None, ge=0, le=10, description="Количество комнат"),
+    has_duplicates: Optional[bool] = Query(None, description="Есть ли дубликаты"),
+    sort_by: Optional[str] = Query("created_at", description="Сортировка: price, area_sqm, created_at, duplicates_count"),
+    sort_order: Optional[str] = Query("desc", description="Порядок: asc, desc"),
+    limit: int = Query(50, ge=1, le=500, description="Количество записей"),
+    offset: int = Query(0, ge=0, description="Смещение")
 ):
+    """Получает список уникальных объявлений с фильтрацией"""
+    
+    # Создаем ключ кэша
+    cache_key = f"unique_ads:{hash(str(locals()))}"
+    
+    # Проверяем кэш
+    cached = await get_from_cache(cache_key)
+    if cached:
+        return json.loads(cached)
+    
     filters = {
         'is_realtor': is_realtor,
         'city': city,
@@ -266,190 +296,366 @@ async def get_all_ads(
         'min_area': min_area,
         'max_area': max_area,
         'rooms': rooms,
-        'source_name': source_name,
-        'series': series,
-        'repair': repair,
-        'heating': heating,
-        'furniture': furniture
+        'has_duplicates': has_duplicates
     }
     
-    query = build_ads_query(db, filters)
+    query = build_unique_ads_query(db, filters)
+    
+    # Сортировка
+    if sort_by == "price":
+        order_col = db_models.DBUniqueAd.price
+    elif sort_by == "area_sqm":
+        order_col = db_models.DBUniqueAd.area_sqm
+    elif sort_by == "duplicates_count":
+        order_col = db_models.DBUniqueAd.duplicates_count
+    else:
+        order_col = db_models.DBUniqueAd.id  # created_at по умолчанию
+    
+    if sort_order == "desc":
+        query = query.order_by(desc(order_col))
+    else:
+        query = query.order_by(order_col)
+    
+    # Оптимизированный подсчет
     total = query.count()
     
-    db_ads = query.offset(offset).limit(limit).all()
+    # Получаем данные
+    db_unique_ads = query.offset(offset).limit(limit).all()
     
-    return PaginatedResponse(
+    result = PaginatedUniqueAdsResponse(
         total=total,
         offset=offset,
         limit=limit,
-        items=[transform_ad(ad) for ad in db_ads]
+        items=[transform_unique_ad(ad) for ad in db_unique_ads]
     )
-
-@app.get("/ads/{ad_id}/sources", response_model=List[Dict[str, str]])
-async def get_ad_sources(ad_id: str, db: Session = Depends(get_db)):
-    db_ad = build_ads_query(db, include_relations=True).filter(db_models.DBAd.id == ad_id).first()
     
-    if not db_ad:
-        raise HTTPException(status_code=404, detail="Ad not found")
+    # Кэшируем результат
+    await set_cache(cache_key, result.json(), ttl=180)  # 3 минуты
+    
+    return result
+
+# ТЗ №5: GET /ads/{id} — подробности по уникальному объявлению и его дублям
+@app.get("/ads/unique/{unique_ad_id}", response_model=DuplicateInfo)
+async def get_unique_ad_details(
+    unique_ad_id: int,
+    db: Session = Depends(get_db)
+):
+    """Получает детали уникального объявления и все его дубликаты"""
+    
+    # Проверяем кэш
+    cache_key = f"unique_ad_details:{unique_ad_id}"
+    cached = await get_from_cache(cache_key)
+    if cached:
+        return json.loads(cached)
+    
+    # Получаем уникальное объявление
+    unique_ad = db.query(db_models.DBUniqueAd).options(
+        selectinload(db_models.DBUniqueAd.location),
+        selectinload(db_models.DBUniqueAd.photos)
+    ).filter(db_models.DBUniqueAd.id == unique_ad_id).first()
+    
+    if not unique_ad:
+        raise HTTPException(status_code=404, detail="Unique ad not found")
+    
+    # Получаем все связанные объявления через DuplicateProcessor
+    processor = DuplicateProcessor(db)
+    all_ads_info = processor.get_all_ads_for_unique(unique_ad_id)
+    
+    # Получаем базовое объявление
+    base_ad = None
+    if all_ads_info['base_ad']:
+        base_ad = transform_ad(all_ads_info['base_ad'][0])
+    
+    # Получаем дубликаты
+    duplicates = [transform_ad(ad) for ad in all_ads_info['duplicates']]
+    
+    # Формируем источники
+    sources = []
+    if base_ad:
+        sources.append(AdSource(
+            id=base_ad.id,
+            source_url=base_ad.source_url,
+            source_name=base_ad.source_name,
+            published_at=base_ad.published_at,
+            is_base=True
+        ))
+    
+    for dup in duplicates:
+        sources.append(AdSource(
+            id=dup.id,
+            source_url=dup.source_url,
+            source_name=dup.source_name,
+            published_at=dup.published_at,
+            is_base=False
+        ))
+    
+    result = DuplicateInfo(
+        unique_ad_id=unique_ad_id,
+        total_duplicates=unique_ad.duplicates_count,
+        base_ad=base_ad,
+        duplicates=duplicates,
+        sources=sources
+    )
+    
+    # Кэшируем результат
+    await set_cache(cache_key, result.json(), ttl=600)  # 10 минут
+    
+    return result
+
+# ТЗ №5: GET /ads/{id}/sources — список источников
+@app.get("/ads/unique/{unique_ad_id}/sources", response_model=List[AdSource])
+async def get_unique_ad_sources(
+    unique_ad_id: int,
+    db: Session = Depends(get_db)
+):
+    """Получает все источники для уникального объявления"""
+    
+    # Проверяем существование
+    unique_ad = db.query(db_models.DBUniqueAd).filter(
+        db_models.DBUniqueAd.id == unique_ad_id
+    ).first()
+    
+    if not unique_ad:
+        raise HTTPException(status_code=404, detail="Unique ad not found")
+    
+    # Получаем все связанные объявления
+    processor = DuplicateProcessor(db)
+    all_ads_info = processor.get_all_ads_for_unique(unique_ad_id)
     
     sources = []
     
-    if not db_ad.is_duplicate:
-        sources.append({
-            "id": db_ad.id,
-            "source_url": db_ad.source_url,
-            "source_name": db_ad.source_name,
-            "published_at": db_ad.published_at.isoformat() if db_ad.published_at else None
-        })
-        for dup in db_ad.duplicates_list:
-            sources.append({
-                "id": dup.id,
-                "source_url": dup.source_url,
-                "source_name": dup.source_name,
-                "published_at": dup.published_at.isoformat() if dup.published_at else None
-            })
-    elif db_ad.unique_parent_ad:
-        sources.append({
-            "id": db_ad.unique_parent_ad.id,
-            "source_url": db_ad.unique_parent_ad.source_url,
-            "source_name": db_ad.unique_parent_ad.source_name,
-            "published_at": db_ad.unique_parent_ad.published_at.isoformat() if db_ad.unique_parent_ad.published_at else None
-        })
-        for dup in db_ad.unique_parent_ad.duplicates_list:
-            sources.append({
-                "id": dup.id,
-                "source_url": dup.source_url,
-                "source_name": dup.source_name,
-                "published_at": dup.published_at.isoformat() if dup.published_at else None
-            })
-    else:
-        sources.append({
-            "id": db_ad.id,
-            "source_url": db_ad.source_url,
-            "source_name": db_ad.source_name,
-            "published_at": db_ad.published_at.isoformat() if db_ad.published_at else None
-        })
+    # Базовое объявление
+    if all_ads_info['base_ad']:
+        base = all_ads_info['base_ad'][0]
+        sources.append(AdSource(
+            id=base.id,
+            source_url=base.source_url,
+            source_name=base.source_name,
+            published_at=base.published_at,
+            is_base=True
+        ))
+    
+    # Дубликаты
+    for dup in all_ads_info['duplicates']:
+        sources.append(AdSource(
+            id=dup.id,
+            source_url=dup.source_url,
+            source_name=dup.source_name,
+            published_at=dup.published_at,
+            is_base=False
+        ))
     
     return sources
 
-@app.delete("/ads/{ad_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_ad(ad_id: int, db: Session = Depends(get_db)):
-    """Удаляет объявление по ID"""
+# Создание нового объявления (для парсеров)
+@app.post("/ads", response_model=Ad, status_code=status.HTTP_201_CREATED)
+async def create_ad(
+    ad_data: AdCreateRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db)
+):
+    """Создает новое объявление и запускает обработку дубликатов в фоне"""
     try:
-        # Проверяем существование объявления
-        db_ad = db.query(db_models.DBAd).filter(db_models.DBAd.id == ad_id).first()
-        if not db_ad:
-            raise HTTPException(status_code=404, detail="Ad not found")
-        
-        # Если это дубликат, уменьшаем счетчик у уникального объявления
-        if db_ad.is_duplicate and db_ad.duplicate_info:
-            unique_ad = db.query(db_models.DBUniqueAd).filter(
-                db_models.DBUniqueAd.id == db_ad.duplicate_info.unique_ad_id
+        # Создаем или получаем локацию
+        db_location = None
+        if ad_data.location:
+            db_location = db.query(db_models.DBLocation).filter(
+                and_(
+                    db_models.DBLocation.city == ad_data.location.city,
+                    db_models.DBLocation.district == ad_data.location.district,
+                    db_models.DBLocation.address == ad_data.location.address
+                )
             ).first()
-            if unique_ad:
-                unique_ad.duplicates_count = max(0, unique_ad.duplicates_count - 1)
-        
-        # Удаляем объявление (каскадное удаление удалит связанные записи)
-        db.delete(db_ad)
-        db.commit()
-        
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.put("/ads/{ad_id}", response_model=Ad)
-async def update_ad(ad_id: int, ad: Ad, db: Session = Depends(get_db)):
-    """Обновляет объявление по ID"""
-    try:
-        # Проверяем существование объявления
-        db_ad = db.query(db_models.DBAd).filter(db_models.DBAd.id == ad_id).first()
-        if not db_ad:
-            raise HTTPException(status_code=404, detail="Ad not found")
-        
-        # Обновляем локацию
-        if ad.location:
-            location_query = get_location_query(ad.location)
-            if location_query:
-                db_location = db.query(db_models.DBLocation).filter(location_query).first()
+            
             if not db_location:
-                db_location = db_models.DBLocation(**ad.location.dict())
+                db_location = db_models.DBLocation(
+                    city=ad_data.location.city,
+                    district=ad_data.location.district,
+                    address=ad_data.location.address
+                )
                 db.add(db_location)
                 db.flush()
-            db_ad.location_id = db_location.id
+
+        # Парсим дату публикации
+        published_at = None
+        if ad_data.published_at:
+            try:
+                published_at = datetime.fromisoformat(ad_data.published_at)
+            except ValueError:
+                logger.warning(f"Invalid published_at format: {ad_data.published_at}")
+
+        # Создаем объявление
+        db_ad = db_models.DBAd(
+            source_id=ad_data.source_id,
+            source_url=ad_data.source_url,
+            source_name=ad_data.source_name,
+            title=ad_data.title,
+            description=ad_data.description,
+            price=ad_data.price,
+            price_original=ad_data.price_original,
+            currency=ad_data.currency,
+            rooms=ad_data.rooms,
+            area_sqm=ad_data.area_sqm,
+            floor=ad_data.floor,
+            total_floors=ad_data.total_floors,
+            series=ad_data.series,
+            building_type=ad_data.building_type,
+            condition=ad_data.condition,
+            repair=ad_data.repair,
+            furniture=ad_data.furniture,
+            heating=ad_data.heating,
+            hot_water=ad_data.hot_water,
+            gas=ad_data.gas,
+            ceiling_height=ad_data.ceiling_height,
+            phone_numbers=ad_data.phone_numbers,
+            location_id=db_location.id if db_location else None,
+            attributes=ad_data.attributes,
+            published_at=published_at,
+            parsed_at=datetime.utcnow(),
+            is_duplicate=False,
+            is_processed=False
+        )
         
-        # Обновляем основные поля
-        db_ad.source_id = ad.source_id
-        db_ad.source_url = str(ad.source_url)
-        db_ad.source_name = ad.source_name
-        db_ad.title = ad.title
-        db_ad.description = ad.description
-        db_ad.price = ad.price
-        db_ad.price_original = ad.price_original
-        db_ad.currency = ad.currency
-        db_ad.rooms = ad.rooms
-        db_ad.area_sqm = ad.area_sqm
-        db_ad.floor = ad.floor
-        db_ad.total_floors = ad.total_floors
-        db_ad.series = ad.series
-        db_ad.building_type = ad.building_type
-        db_ad.condition = ad.condition
-        db_ad.repair = ad.repair
-        db_ad.furniture = ad.furniture
-        db_ad.heating = ad.heating
-        db_ad.hot_water = ad.hot_water
-        db_ad.gas = ad.gas
-        db_ad.ceiling_height = ad.ceiling_height
-        db_ad.phone_numbers = ad.phone_numbers
-        db_ad.is_vip = ad.is_vip
-        db_ad.published_at = datetime.fromisoformat(ad.published_at) if ad.published_at else None
-        db_ad.parsed_at = datetime.fromisoformat(ad.parsed_at)
-        db_ad.attributes = ad.attributes
-        db_ad.is_realtor = ad.is_realtor
-        db_ad.realtor_score = ad.realtor_score
+        db.add(db_ad)
+        db.flush()
         
-        # Обновляем фотографии
-        if ad.photos:
-            # Удаляем старые фотографии
-            db.query(db_models.DBPhoto).filter(db_models.DBPhoto.ad_id == ad_id).delete()
-            # Добавляем новые
-            for photo in ad.photos:
-                db_photo = db_models.DBPhoto(url=str(photo.url), hash=photo.hash, ad_id=ad_id)
+        # Создаем записи фотографий (без обработки)
+        if ad_data.photos:
+            for photo in ad_data.photos:
+                db_photo = db_models.DBPhoto(
+                    url=str(photo.url),
+                    ad_id=db_ad.id
+                )
                 db.add(db_photo)
-        
-        # Если объявление было дубликатом, но теперь не является
-        if db_ad.is_duplicate and not ad.is_duplicate:
-            # Удаляем информацию о дубликате
-            if db_ad.duplicate_info:
-                db.delete(db_ad.duplicate_info)
-            # Уменьшаем счетчик у уникального объявления
-            if db_ad.duplicate_info and db_ad.duplicate_info.unique_ad:
-                unique_ad = db_ad.duplicate_info.unique_ad
-                unique_ad.duplicates_count = max(0, unique_ad.duplicates_count - 1)
-        
-        # Если объявление не было дубликатом, но теперь является
-        elif not db_ad.is_duplicate and ad.is_duplicate and ad.duplicate_info:
-            # Создаем новую запись о дубликате
-            db_duplicate = db_models.DBAdDuplicate(
-                unique_ad_id=ad.duplicate_info.unique_ad_id,
-                original_ad_id=ad_id,
-                photo_similarity=ad.duplicate_info.photo_similarity,
-                text_similarity=ad.duplicate_info.text_similarity,
-                contact_similarity=ad.duplicate_info.contact_similarity,
-                address_similarity=ad.duplicate_info.address_similarity,
-                overall_similarity=ad.duplicate_info.overall_similarity
-            )
-            db.add(db_duplicate)
-            # Увеличиваем счетчик у уникального объявления
-            unique_ad = db.query(db_models.DBUniqueAd).filter(
-                db_models.DBUniqueAd.id == ad.duplicate_info.unique_ad_id
-            ).first()
-            if unique_ad:
-                unique_ad.duplicates_count += 1
         
         db.commit()
         db.refresh(db_ad)
+        
+        # Запускаем обработку фото и дубликатов в фоне
+        background_tasks.add_task(
+            process_ad_async,
+            db_ad.id
+        )
+        
         return transform_ad(db_ad)
         
     except Exception as e:
         db.rollback()
+        logger.error(f"Error creating ad: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+async def process_ad_async(ad_id: int):
+    """Асинхронная обработка объявления"""
+    try:
+        # Создаем новую сессию для фоновой задачи
+        from app.database import SessionLocal
+        db = SessionLocal()
+        
+        try:
+            # Получаем объявление
+            db_ad = db.query(db_models.DBAd).filter(db_models.DBAd.id == ad_id).first()
+            if not db_ad:
+                return
+            
+            # Обрабатываем фотографии асинхронно
+            await photo_service.process_ad_photos(db, db_ad)
+            
+            # Обрабатываем дубликаты
+            processor = DuplicateProcessor(db)
+            processor.process_ad(db_ad)
+            
+            db.commit()
+            logger.info(f"Successfully processed ad {ad_id}")
+            
+        finally:
+            db.close()
+            
+    except Exception as e:
+        logger.error(f"Error processing ad {ad_id}: {e}")
+
+# Статистика
+@app.get("/stats", response_model=StatsResponse)
+async def get_statistics(db: Session = Depends(get_db)):
+    """Получает общую статистику системы"""
+    
+    cache_key = "system_stats"
+    cached = await get_from_cache(cache_key)
+    if cached:
+        return json.loads(cached)
+    
+    # Получаем статистику через DuplicateProcessor
+    processor = DuplicateProcessor(db)
+    duplicate_stats = processor.get_duplicate_statistics()
+    realtor_stats = processor.get_realtor_statistics()
+    
+    result = StatsResponse(
+        total_unique_ads=duplicate_stats['total_unique_ads'],
+        total_original_ads=duplicate_stats['total_original_ads'],
+        total_duplicates=duplicate_stats['duplicate_ads'],
+        realtor_ads=realtor_stats['realtor_unique_ads'],
+        deduplication_ratio=duplicate_stats['deduplication_ratio']
+    )
+    
+    # Кэшируем на 5 минут
+    await set_cache(cache_key, result.json(), ttl=300)
+    
+    return result
+
+# Управление дубликатами
+@app.post("/duplicates/process", status_code=status.HTTP_202_ACCEPTED)
+async def process_duplicates(
+    background_tasks: BackgroundTasks,
+    batch_size: int = Query(100, ge=1, le=1000)
+):
+    """Запускает обработку дубликатов в фоне"""
+    background_tasks.add_task(process_duplicates_async, batch_size)
+    return {"message": "Duplicate processing started", "batch_size": batch_size}
+
+async def process_duplicates_async(batch_size: int):
+    """Асинхронная обработка дубликатов"""
+    try:
+        from app.database import SessionLocal
+        db = SessionLocal()
+        
+        try:
+            processor = DuplicateProcessor(db)
+            processor.process_new_ads(batch_size)
+            logger.info(f"Processed {batch_size} ads for duplicates")
+        finally:
+            db.close()
+            
+    except Exception as e:
+        logger.error(f"Error processing duplicates: {e}")
+
+@app.post("/realtors/detect", status_code=status.HTTP_202_ACCEPTED)
+async def detect_realtors(background_tasks: BackgroundTasks):
+    """Запускает обнаружение риэлторов в фоне"""
+    background_tasks.add_task(detect_realtors_async)
+    return {"message": "Realtor detection started"}
+
+async def detect_realtors_async():
+    """Асинхронное обнаружение риэлторов"""
+    try:
+        from app.database import SessionLocal
+        db = SessionLocal()
+        
+        try:
+            processor = DuplicateProcessor(db)
+            processor.detect_realtors()
+            logger.info("Realtor detection completed")
+        finally:
+            db.close()
+            
+    except Exception as e:
+        logger.error(f"Error detecting realtors: {e}")
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(
+        app,
+        host=API_HOST,
+        port=API_PORT,
+        workers=1,  # В продакшене увеличить
+        log_level="info"
+    )
+
