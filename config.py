@@ -15,6 +15,12 @@ DB_PASSWORD = os.getenv("DB_PASSWORD", "admin123")
 
 REDIS_URL = os.getenv("REDIS_URL")
 
+# Настройки Elasticsearch
+ELASTICSEARCH_HOSTS = os.getenv("ELASTICSEARCH_HOSTS", "http://localhost:9200").split(",")
+ELASTICSEARCH_INDEX = os.getenv("ELASTICSEARCH_INDEX", "real_estate_ads")
+ELASTICSEARCH_USERNAME = os.getenv("ELASTICSEARCH_USERNAME")
+ELASTICSEARCH_PASSWORD = os.getenv("ELASTICSEARCH_PASSWORD")
+
 # Настройки парсинга
 TARGET_SITE_URL = os.getenv("TARGET_SITE_URL")
 PARSING_INTERVAL = 3600  # интервал между запросами в секундах

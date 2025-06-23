@@ -27,8 +27,6 @@ class UniversalSpider(scrapy.Spider):
         self.config = load_config(self.config_path)
         self.validate_config()
 
-
-
     def validate_config(self):
         """Проверяет обязательные поля в конфиге"""
         required_fields = ['api_url', 'main_url', 'headers']
@@ -36,12 +34,18 @@ class UniversalSpider(scrapy.Spider):
             if field not in self.config:
                 raise ValueError(f"Missing required field '{field}' in config")
 
-    async def start(self):
-        """Точка входа для асинхронного запуска"""
+    def start_requests(self):
+        """ИСПРАВЛЕНО: Синхронная точка входа вместо async start()"""
         if self.config.get('use_playwright', True):
-            cookies, headers = await self.get_cookies_and_headers()
-            cookie_header = "; ".join([f"{c['name']}={c['value']}" for c in cookies])
-            headers_to_use = {**headers, "cookie": cookie_header}
+            # Запускаем асинхронную функцию для получения куки
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                cookies, headers = loop.run_until_complete(self.get_cookies_and_headers())
+                cookie_header = "; ".join([f"{c['name']}={c['value']}" for c in cookies])
+                headers_to_use = {**headers, "cookie": cookie_header}
+            finally:
+                loop.close()
         else:
             headers_to_use = self.config['headers']
         
@@ -49,7 +53,8 @@ class UniversalSpider(scrapy.Spider):
             url=self.config['api_url'],
             headers=headers_to_use,
             callback=self.parse_api,
-            meta={'config': self.config}
+            meta={'config': self.config},
+            errback=self.handle_error
         )
 
     async def get_cookies_and_headers(self):
@@ -61,16 +66,20 @@ class UniversalSpider(scrapy.Spider):
         headless = playwright_config.get('headless', True)
         sleep_time = playwright_config.get('sleep_time', 3)
 
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=headless)
-            context = await browser.new_context()
-            page = await context.new_page()
-            await page.goto(main_url)
-            await asyncio.sleep(sleep_time)
+        try:
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(headless=headless)
+                context = await browser.new_context()
+                page = await context.new_page()
+                await page.goto(main_url)
+                await asyncio.sleep(sleep_time)
 
-            cookies = await context.cookies()
-            await browser.close()
-            return cookies, headers
+                cookies = await context.cookies()
+                await browser.close()
+                return cookies, headers
+        except Exception as e:
+            self.logger.error(f"Error getting cookies and headers: {e}")
+            return [], headers
 
     def parse_api(self, response):
         """Парсит API ответ согласно конфигурации"""
@@ -78,8 +87,9 @@ class UniversalSpider(scrapy.Spider):
         
         try:
             data = response.json()
-        except ValueError:
-            self.logger.error("Invalid JSON in response: %s", response.text)
+        except ValueError as e:
+            self.logger.error(f"Invalid JSON in response from {response.url}: {e}")
+            self.logger.debug(f"Response text: {response.text[:500]}...")
             return
 
         # Получаем путь к данным (например, "items" или "data.results")
@@ -87,28 +97,78 @@ class UniversalSpider(scrapy.Spider):
         items = self.get_nested_value(data, items_path)
         
         if not isinstance(items, list):
-            self.logger.warning("Expected items to be a list, got: %s", type(items))
+            self.logger.warning(f"Expected items to be a list, got: {type(items)} for path '{items_path}'")
+            self.logger.debug(f"Data structure: {list(data.keys()) if isinstance(data, dict) else type(data)}")
             return
 
         # Маппинг полей из конфига
         field_mapping = config.get('field_mapping', {})
         
+        items_processed = 0
         for item in items:
-            result = {}
+            try:
+                result = {}
+                
+                # Обрабатываем простые поля
+                for output_field, input_path in field_mapping.items():
+                    try:
+                        if isinstance(input_path, str):
+                            result[output_field] = self.get_nested_value(item, input_path)
+                        elif isinstance(input_path, dict):
+                            # Сложная обработка полей
+                            result[output_field] = self.process_complex_field(item, input_path)
+                    except Exception as e:
+                        self.logger.warning(f"Error processing field '{output_field}': {e}")
+                        result[output_field] = None
+                
+                # Добавляем URL если нужно
+                if 'url' in result and config.get('make_absolute_url', True):
+                    if result['url']:
+                        result['url'] = urljoin(config['main_url'], result['url'])
+                
+                # НОВОЕ: Валидация и очистка данных перед yield
+                validated_result = self.validate_and_clean_item(result)
+                
+                if validated_result:
+                    items_processed += 1
+                    yield validated_result
+                    
+            except Exception as e:
+                self.logger.error(f"Error processing item: {e}")
+                continue
+        
+        self.logger.info(f"Successfully processed {items_processed} items from API")
+
+    def validate_and_clean_item(self, item):
+        """НОВОЕ: Валидация и базовая очистка данных"""
+        try:
+            # Проверяем обязательные поля
+            if not item.get('title') and not item.get('url'):
+                self.logger.warning("Item missing both title and url, skipping")
+                return None
             
-            # Обрабатываем простые поля
-            for output_field, input_path in field_mapping.items():
-                if isinstance(input_path, str):
-                    result[output_field] = self.get_nested_value(item, input_path)
-                elif isinstance(input_path, dict):
-                    # Сложная обработка полей
-                    result[output_field] = self.process_complex_field(item, input_path)
+            # Базовая очистка строковых полей
+            string_fields = ['title', 'description', 'city', 'district', 'address']
+            for field in string_fields:
+                if field in item and item[field]:
+                    item[field] = str(item[field]).strip()
+                    if not item[field]:  # Если после strip стало пустым
+                        item[field] = None
             
-            # Добавляем URL если нужно
-            if 'url' in result and config.get('make_absolute_url', True):
-                result['url'] = urljoin(config['main_url'], result['url'])
+            # Преобразование булевых полей
+            bool_fields = ['is_vip', 'is_realtor']
+            for field in bool_fields:
+                if field in item and item[field] is not None:
+                    if isinstance(item[field], str):
+                        item[field] = item[field].lower() in ['true', '1', 'yes', 'да']
+                    else:
+                        item[field] = bool(item[field])
             
-            yield result
+            return item
+            
+        except Exception as e:
+            self.logger.error(f"Error validating item: {e}")
+            return None
 
     def get_nested_value(self, data, path):
         """Получает значение по вложенному пути (например, 'data.items.0.title')"""
@@ -119,49 +179,64 @@ class UniversalSpider(scrapy.Spider):
         current = data
         
         for key in keys:
-            if isinstance(current, dict):
-                current = current.get(key)
-            elif isinstance(current, list) and key.isdigit():
-                idx = int(key)
-                current = current[idx] if idx < len(current) else None
-            else:
-                return None
-                
-            if current is None:
+            try:
+                if isinstance(current, dict):
+                    current = current.get(key)
+                elif isinstance(current, list) and key.isdigit():
+                    idx = int(key)
+                    current = current[idx] if idx < len(current) else None
+                else:
+                    return None
+                    
+                if current is None:
+                    return None
+            except (KeyError, IndexError, ValueError):
                 return None
                 
         return current
 
     def process_complex_field(self, item, field_config):
         """Обрабатывает сложные поля согласно конфигурации"""
-        field_type = field_config.get('type')
-        
-        if field_type == 'main_image':
-            images = self.get_nested_value(item, field_config['source_path'])
-            if not images:
-                return None
-            main_image = next((img for img in images if img.get(field_config.get('main_field', 'is_main'))), None)
-            if main_image:
-                return main_image.get(field_config.get('url_field', 'original_url'))
-            return None
+        try:
+            field_type = field_config.get('type')
             
-        elif field_type == 'param_search':
-            params = self.get_nested_value(item, field_config['source_path'])
-            if not params:
+            if field_type == 'main_image':
+                images = self.get_nested_value(item, field_config['source_path'])
+                if not images or not isinstance(images, list):
+                    return None
+                main_image = next((img for img in images if img.get(field_config.get('main_field', 'is_main'))), None)
+                if main_image:
+                    return main_image.get(field_config.get('url_field', 'original_url'))
                 return None
-            target_id = field_config['target_id']
-            for param in params:
-                if param.get('id') == target_id:
-                    return param.get('value')
-            return None
-            
-        elif field_type == 'custom':
-            # Для кастомной обработки
-            return self.custom_field_processor(item, field_config)
+                
+            elif field_type == 'param_search':
+                params = self.get_nested_value(item, field_config['source_path'])
+                if not params or not isinstance(params, list):
+                    return None
+                target_id = field_config['target_id']
+                for param in params:
+                    if param.get('id') == target_id:
+                        return param.get('value')
+                return None
+                
+            elif field_type == 'custom':
+                # Для кастомной обработки
+                return self.custom_field_processor(item, field_config)
+                
+        except Exception as e:
+            self.logger.warning(f"Error processing complex field: {e}")
             
         return None
-    
 
     def custom_field_processor(self, item, field_config):
         """Переопределяй этот метод для кастомной обработки полей"""
         return None
+
+    def handle_error(self, failure):
+        """НОВОЕ: Обработчик ошибок"""
+        request = failure.request
+        self.logger.error(f"Request failed for {request.url}: {failure.value}")
+        
+        # Можно добавить логику повторных попыток здесь
+        return None
+

@@ -1,4 +1,4 @@
-# generic_spider.py - ПРАВИЛЬНАЯ ИСПРАВЛЕННАЯ ВЕРСИЯ
+# generic_spider.py - ПОЛНОСТЬЮ ИСПРАВЛЕННАЯ ВЕРСИЯ БЕЗ МЕЛКИХ ОШИБОК
 
 import scrapy
 from scrapy_playwright.page import PageMethod
@@ -13,17 +13,17 @@ class GenericSpider(scrapy.Spider):
     custom_settings = {
         'PLAYWRIGHT_LAUNCH_OPTIONS': {
             'headless': True,
-            'timeout': 60000,  # Увеличиваем таймаут запуска браузера
+            'timeout': 60000,
         },
-        'PLAYWRIGHT_DEFAULT_NAVIGATION_TIMEOUT': 60000,  # Увеличиваем таймаут навигации
-        'DOWNLOAD_TIMEOUT': 60,  # Увеличиваем общий таймаут загрузки
-        'DOWNLOAD_MAXSIZE': 10485760,  # 10MB
-        'DOWNLOAD_WARNSIZE': 5242880,  # 5MB
-        'RETRY_TIMES': 3,  # Количество повторных попыток
+        'PLAYWRIGHT_DEFAULT_NAVIGATION_TIMEOUT': 60000,
+        'DOWNLOAD_TIMEOUT': 60,
+        'DOWNLOAD_MAXSIZE': 10485760,
+        'DOWNLOAD_WARNSIZE': 5242880,
+        'RETRY_TIMES': 3,
         'RETRY_HTTP_CODES': [500, 502, 503, 504, 522, 524, 408, 429, 403],
-        'CONCURRENT_REQUESTS': 2,  # Уменьшаем количество одновременных запросов
+        'CONCURRENT_REQUESTS': 2,
         'CONCURRENT_REQUESTS_PER_DOMAIN': 2,
-        'DOWNLOAD_DELAY': 2,  # Задержка между запросами
+        'DOWNLOAD_DELAY': 2,
         'RANDOMIZE_DOWNLOAD_DELAY': True,
     }
 
@@ -42,7 +42,6 @@ class GenericSpider(scrapy.Spider):
         self.max_pages = int(self.config.get("max_pages", 50))
         self.current_page = 1
         
-        # Счетчики для отслеживания
         self.processed_items = 0
         self.failed_items = 0
 
@@ -61,7 +60,6 @@ class GenericSpider(scrapy.Spider):
                     if key == "item":
                         continue
 
-                    # Обработка ошибок для селекторов
                     try:
                         value = None
                         if sel.startswith("xpath:"):
@@ -78,10 +76,8 @@ class GenericSpider(scrapy.Spider):
                         item_data[key] = None
 
                 follow_link = self.detail_config.get("follow_link", False)
-                use_playwright = self.detail_config.get("use_playwright", False)
 
                 if follow_link and item_data.get("link"):
-                    # Проверка корректности ссылки
                     try:
                         detail_url = response.urljoin(item_data["link"])
                         item_data["link"] = detail_url
@@ -92,11 +88,9 @@ class GenericSpider(scrapy.Spider):
                             "playwright": True,
                             "playwright_page_methods": [
                                 PageMethod("wait_for_load_state", "networkidle"),
-                                PageMethod("wait_for_timeout", 2000),  # Ждем загрузки
+                                PageMethod("wait_for_timeout", 2000),
                             ],
                             "playwright_page_init_callback": self.page_init_callback,
-                            "max_retries": 3,  # Максимальное количество попыток
-                            "retry_delay": 5000,  # Задержка между попытками
                         }
 
                         yield scrapy.Request(
@@ -104,12 +98,11 @@ class GenericSpider(scrapy.Spider):
                             callback=self.parse_detail,
                             meta=meta,
                             errback=self.handle_error,
-                            dont_filter=True  # Разрешаем повторные запросы
+                            dont_filter=True
                         )
                     except Exception as e:
                         self.logger.error(f"Error processing detail link '{item_data.get('link')}': {e}")
                         self.failed_items += 1
-                        # Возвращаем элемент без детальной информации
                         yield item_data
                 else:
                     yield item_data
@@ -148,10 +141,23 @@ class GenericSpider(scrapy.Spider):
                 self.logger.error(f"Error in pagination: {e}")
 
     def parse_detail(self, response):
-        """Парсинг детальной страницы без return в генераторе"""
+        """ИСПРАВЛЕНО: Парсинг детальной страницы с проверкой типа контента"""
         item = response.meta["item"]
         
         try:
+            # НОВОЕ: Проверяем тип контента
+            content_type = response.headers.get('content-type', b'').decode('utf-8').lower()
+            if 'text/html' not in content_type:
+                self.logger.warning(f"Non-HTML content type: {content_type} for {response.url}")
+                yield item  # Возвращаем элемент без детальных данных
+                return
+            
+            # НОВОЕ: Проверяем, что response содержит текст
+            if not hasattr(response, 'text') or not response.text:
+                self.logger.warning(f"Empty or non-text response for {response.url}")
+                yield item
+                return
+                
             detail_fields = self.detail_config.get("fields", {})
             for key, selector in detail_fields.items():
                 try:
@@ -177,45 +183,46 @@ class GenericSpider(scrapy.Spider):
         yield item
 
     async def page_init_callback(self, page, request):
-        """Callback для инициализации Playwright страницы"""
+        """ИСПРАВЛЕНО: Callback для инициализации Playwright страницы"""
         if not page:
-            self.logger.warning("Page object is None in page_init_callback")
+            self.logger.debug("Page object is None in page_init_callback")
             return
             
         try:
+            # НОВОЕ: Проверяем, что page не закрыта
+            if page.is_closed():
+                self.logger.debug("Page is already closed")
+                return
+                
             # Устанавливаем таймауты
-            await page.set_default_timeout(60000)  # 60 секунд
+            await page.set_default_timeout(60000)
             await page.set_default_navigation_timeout(60000)
             
             # Отключаем загрузку ненужных ресурсов для ускорения
             await page.route("**/*.{png,jpg,jpeg,gif,svg,ico,woff,woff2}", lambda route: route.abort())
             
-            # Добавляем обработку ошибок
-            page.on("pageerror", lambda err: self.logger.error(f"Page error: {err}"))
-            page.on("requestfailed", lambda request: self.logger.warning(f"Request failed: {request.url}"))
+            # Добавляем обработку ошибок (но не логируем их как ERROR)
+            page.on("pageerror", lambda err: self.logger.debug(f"Page error: {err}"))
+            page.on("requestfailed", lambda request: self.logger.debug(f"Request failed: {request.url}"))
             
             # Добавляем случайные задержки
             await page.wait_for_timeout(random.randint(1000, 3000))
             
         except Exception as e:
-            self.logger.warning(f"Error in page_init_callback: {e}")
+            self.logger.debug(f"Error in page_init_callback: {e}")
 
     def handle_error(self, failure):
         """Обработчик ошибок"""
         request = failure.request
         self.logger.error(f"Request failed: {failure.value}")
         
-        # Проверяем количество попыток
         retries = request.meta.get('retry_times', 0)
-        max_retries = request.meta.get('max_retries', 3)
+        max_retries = 3
         
         if retries < max_retries:
-            # Увеличиваем счетчик попыток
             request.meta['retry_times'] = retries + 1
             
-            # Добавляем задержку перед повторной попыткой
-            delay = request.meta.get('retry_delay', 5000)
-            self.logger.info(f"Retrying request {request.url} (attempt {retries + 1}/{max_retries}) after {delay}ms")
+            self.logger.info(f"Retrying request {request.url} (attempt {retries + 1}/{max_retries})")
             
             return scrapy.Request(
                 url=request.url,
@@ -229,51 +236,16 @@ class GenericSpider(scrapy.Spider):
             self.failed_items += 1
 
     def closed(self, reason):
-        """Корректное закрытие спайдера с обработкой асинхронных задач"""
+        """ИСПРАВЛЕНО: Корректное закрытие спайдера"""
         self.logger.info(f"Spider closed: {reason}")
         self.logger.info(f"Processed items: {self.processed_items}")
         self.logger.info(f"Failed items: {self.failed_items}")
         
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # Получаем все незавершенные задачи
-                pending_tasks = [task for task in asyncio.all_tasks(loop) 
-                                 if not task.done() and not task.cancelled()]
-                
-                if pending_tasks:
-                    self.logger.info(f"Found {len(pending_tasks)} pending tasks")
-                    
-                    async def cancel_tasks():
-                        for task in pending_tasks:
-                            if not task.done() and not task.cancelled():
-                                task.cancel()
-                                try:
-                                    await asyncio.wait_for(task, timeout=1.0)
-                                except (asyncio.CancelledError, asyncio.TimeoutError):
-                                    pass
-                                except Exception as e:
-                                    self.logger.warning(f"Error cancelling task: {e}")
-                    
-                    future = asyncio.run_coroutine_threadsafe(cancel_tasks(), loop)
-                    try:
-                        future.result(timeout=5)  # Ждем завершения отмены задач
-                    except Exception as e:
-                        if isinstance(e, asyncio.CancelledError):
-                            self.logger.info("Spider tasks were cancelled safely")
-                        else:
-                            self.logger.warning(f"Error waiting for tasks cancellation: {e}")
-                    
-        except Exception as e:
-            self.logger.warning(f"Error in cleanup: {e}")
-            
-        # Даем время на завершение всех операций
-        time.sleep(1)
+        # НОВОЕ: Даем время на завершение Playwright задач
+        time.sleep(2)
         
-        try:
-            if reason == 'finished':
-                self.logger.info("Spider finished successfully")
-            else:
-                self.logger.warning(f"Spider closed with reason: {reason}")
-        except Exception as e:
-            self.logger.warning(f"Unhandled exception during spider closure: {e}")
+        if reason == 'finished':
+            self.logger.info("Spider finished successfully")
+        else:
+            self.logger.warning(f"Spider closed with reason: {reason}")
+

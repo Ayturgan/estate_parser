@@ -64,9 +64,9 @@ FEED_EXPORT_ENCODING = "utf-8"
 # Настройки для базы данных
 DATABASE_URL = "postgresql://real_estate_user:admin123@localhost:5432/real_estate_db"
 
-# Настройки для pipeline
 ITEM_PIPELINES = {
-    'real_estate_scraper.pipelines.DatabasePipeline': 300,
+    'real_estate_scraper.pipelines.DataCleaningPipeline': 200,  # Сначала очищаем цену
+    'real_estate_scraper.pipelines.DatabasePipeline': 300,       # Потом отправляем в API
 }
 
 

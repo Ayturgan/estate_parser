@@ -1,4 +1,4 @@
-# pipelines.py - ИСПРАВЛЕННАЯ ВЕРСИЯ для работы с API спайдером
+# pipelines.py - ПОЛНОСТЬЮ ИСПРАВЛЕННАЯ ВЕРСИЯ с очисткой всех числовых полей
 
 import re
 from datetime import datetime
@@ -20,15 +20,218 @@ class ParserPipeline:
         return item
 
 
+class DataCleaningPipeline:
+    """
+    Пайплайн для очистки всех числовых полей: цены, площади, этажей и т.д.
+    """
+    
+    def process_item(self, item, spider):
+        adapter = ItemAdapter(item)
+        
+        # Очищаем цену и определяем валюту
+        price_original = adapter.get("price")
+        if price_original is not None:
+            adapter["price_original"] = str(price_original)
+            cleaned_price, currency = self.clean_price_and_currency(str(price_original))
+            adapter["price"] = cleaned_price
+            adapter["currency"] = currency
+            spider.logger.debug(f"Price cleaned: '{price_original}' -> {cleaned_price} {currency}")
+        
+        # Очищаем площадь
+        area_original = adapter.get("area") or adapter.get("area_sqm")
+        if area_original is not None:
+            cleaned_area = self.extract_number(str(area_original))
+            adapter["area_sqm"] = cleaned_area
+            spider.logger.debug(f"Area cleaned: '{area_original}' -> {cleaned_area}")
+        
+        # Очищаем этаж
+        floor_original = adapter.get("floor")
+        if floor_original is not None:
+            cleaned_floor = self.extract_floor_number(str(floor_original))
+            adapter["floor"] = cleaned_floor
+            spider.logger.debug(f"Floor cleaned: '{floor_original}' -> {cleaned_floor}")
+        
+        # Очищаем общее количество этажей
+        total_floors_original = adapter.get("total_floors")
+        if total_floors_original is not None:
+            cleaned_total_floors = self.extract_total_floors(str(total_floors_original))
+            adapter["total_floors"] = cleaned_total_floors
+            spider.logger.debug(f"Total floors cleaned: '{total_floors_original}' -> {cleaned_total_floors}")
+        elif floor_original and "из" in str(floor_original):
+            # Извлекаем общее количество этажей из строки этажа
+            total_floors = self.extract_total_floors_from_floor_string(str(floor_original))
+            if total_floors:
+                adapter["total_floors"] = total_floors
+        
+        # Очищаем количество комнат
+        rooms_original = adapter.get("rooms")
+        if rooms_original is not None:
+            cleaned_rooms = self.extract_rooms_number(str(rooms_original))
+            adapter["rooms"] = cleaned_rooms
+            spider.logger.debug(f"Rooms cleaned: '{rooms_original}' -> {cleaned_rooms}")
+        
+        # Очищаем высоту потолков
+        ceiling_height_original = adapter.get("ceiling_height")
+        if ceiling_height_original is not None:
+            cleaned_ceiling_height = self.extract_number(str(ceiling_height_original))
+            adapter["ceiling_height"] = cleaned_ceiling_height
+            spider.logger.debug(f"Ceiling height cleaned: '{ceiling_height_original}' -> {cleaned_ceiling_height}")
+        
+        return item
+    
+    def clean_price_and_currency(self, price_str):
+        """
+        Очищает строку цены и определяет валюту
+        """
+        if not price_str:
+            return None, "USD"
+        
+        price_str = str(price_str).strip()
+        
+        # Определяем валюту по ключевым словам
+        currency = "USD"  # По умолчанию
+        
+        if any(keyword in price_str.lower() for keyword in ['сом', 'som', 'kgs', 'кгс']):
+            currency = "SOM"
+        elif any(keyword in price_str.lower() for keyword in ['usd', '$', 'долл', 'dollar']):
+            currency = "USD"
+        elif any(keyword in price_str.lower() for keyword in ['eur', '€', 'евро', 'euro']):
+            currency = "EUR"
+        
+        # Удаляем все символы кроме цифр, точек и запятых
+        cleaned = re.sub(r'[^\d.,]', '', price_str)
+        cleaned = re.sub(r'\s+', '', cleaned)
+        
+        # Обрабатываем разделители
+        if '.' in cleaned and ',' in cleaned:
+            last_dot = cleaned.rfind('.')
+            last_comma = cleaned.rfind(',')
+            
+            if last_dot > last_comma:
+                cleaned = cleaned.replace(',', '')
+            else:
+                cleaned = cleaned.replace('.', '').replace(',', '.')
+        elif ',' in cleaned:
+            comma_parts = cleaned.split(',')
+            if len(comma_parts) == 2 and len(comma_parts[1]) <= 2:
+                cleaned = cleaned.replace(',', '.')
+            else:
+                cleaned = cleaned.replace(',', '')
+        
+        try:
+            if '.' in cleaned:
+                price_value = float(cleaned)
+            else:
+                price_value = int(cleaned)
+            
+            if price_value <= 0:
+                return None, currency
+                
+            return price_value, currency
+            
+        except (ValueError, TypeError):
+            return None, currency
+    
+    def extract_number(self, text):
+        """
+        Извлекает первое число из строки
+        """
+        if not text:
+            return None
+        
+        # Ищем первое число в строке
+        match = re.search(r'(\d+(?:[.,]\d+)?)', str(text))
+        if match:
+            number_str = match.group(1).replace(',', '.')
+            try:
+                if '.' in number_str:
+                    return float(number_str)
+                else:
+                    return int(number_str)
+            except (ValueError, TypeError):
+                return None
+        return None
+    
+    def extract_floor_number(self, floor_str):
+        """
+        Извлекает номер этажа из строки типа "3 этаж из 10"
+        """
+        if not floor_str:
+            return None
+        
+        # Ищем число перед словом "этаж"
+        match = re.search(r'(\d+)\s*(?:этаж|эт\.?)', str(floor_str), re.IGNORECASE)
+        if match:
+            try:
+                return int(match.group(1))
+            except (ValueError, TypeError):
+                return None
+        
+        # Если не нашли, пробуем извлечь первое число
+        return self.extract_number(floor_str)
+    
+    def extract_total_floors(self, total_floors_str):
+        """
+        Извлекает общее количество этажей
+        """
+        if not total_floors_str:
+            return None
+        
+        # Ищем число после "из"
+        match = re.search(r'из\s*(\d+)', str(total_floors_str), re.IGNORECASE)
+        if match:
+            try:
+                return int(match.group(1))
+            except (ValueError, TypeError):
+                return None
+        
+        # Если не нашли, пробуем извлечь первое число
+        return self.extract_number(total_floors_str)
+    
+    def extract_total_floors_from_floor_string(self, floor_str):
+        """
+        Извлекает общее количество этажей из строки этажа типа "3 этаж из 10"
+        """
+        if not floor_str:
+            return None
+        
+        match = re.search(r'из\s*(\d+)', str(floor_str), re.IGNORECASE)
+        if match:
+            try:
+                return int(match.group(1))
+            except (ValueError, TypeError):
+                return None
+        return None
+    
+    def extract_rooms_number(self, rooms_str):
+        """
+        Извлекает количество комнат из строки типа "1-комн. кв."
+        """
+        if not rooms_str:
+            return None
+        
+        # Ищем число перед "комн"
+        match = re.search(r'(\d+)[-\s]*комн', str(rooms_str), re.IGNORECASE)
+        if match:
+            try:
+                return int(match.group(1))
+            except (ValueError, TypeError):
+                return None
+        
+        # Если не нашли, пробуем извлечь первое число
+        return self.extract_number(rooms_str)
+
+
 class DatabasePipeline:
     """
-    Новый пайплайн: отправляет объявления через API FastAPI (POST /ads), а не напрямую в базу.
+    Пайплайн для отправки объявлений через API FastAPI (POST /ads)
     """
-    API_URL = "http://localhost:8000/ads"  # Замените на нужный адрес, если работаете в Docker
+    API_URL = "http://localhost:8000/ads"
 
     def process_item(self, item, spider):
         adapter = ItemAdapter(item)
-        # Определяем source_name, если не задан в конфиге
+        
+        # Определяем source_name
         source_name = None
         if hasattr(spider, "config"):
             source_name = spider.config.get("source_name", None)
@@ -102,13 +305,13 @@ class DatabasePipeline:
             "source_name": source_name,
             "title": adapter.get("title"),
             "description": adapter.get("description"),
-            "price": adapter.get("price"),
-            "price_original": str(adapter.get("price")) if adapter.get("price") is not None else None,
+            "price": adapter.get("price"),  # Уже очищенное числовое значение
+            "price_original": adapter.get("price_original"),  # Оригинальная строка
             "currency": adapter.get("currency") or "USD",
-            "rooms": adapter.get("rooms"),
-            "area_sqm": adapter.get("area"),
-            "floor": adapter.get("floor"),
-            "total_floors": adapter.get("total_floors"),
+            "rooms": adapter.get("rooms"),  # Уже очищенное числовое значение
+            "area_sqm": adapter.get("area_sqm"),  # Уже очищенное числовое значение
+            "floor": adapter.get("floor"),  # Уже очищенное числовое значение
+            "total_floors": adapter.get("total_floors"),  # Уже очищенное числовое значение
             "series": adapter.get("series"),
             "building_type": adapter.get("building_type") or adapter.get("building"),
             "condition": adapter.get("condition"),
@@ -117,7 +320,7 @@ class DatabasePipeline:
             "heating": adapter.get("heating"),
             "hot_water": adapter.get("hot_water"),
             "gas": adapter.get("gas"),
-            "ceiling_height": adapter.get("ceiling_height"),
+            "ceiling_height": adapter.get("ceiling_height"),  # Уже очищенное числовое значение
             "phone_numbers": phone_numbers,
             "location": location,
             "photos": photos,
@@ -125,13 +328,14 @@ class DatabasePipeline:
             "published_at": published_at,
             "is_vip": adapter.get("is_vip"),
         }
-        # Удаляем поля, если их значение None или пустая строка
+        
+        # Удаляем поля со значением None или пустой строкой
         payload = {k: v for k, v in payload.items() if v not in [None, ""]}
 
         try:
             response = requests.post(self.API_URL, json=payload, timeout=30)
             response.raise_for_status()
-            spider.logger.info(f"Ad sent to API: {payload.get('title')}")
+            spider.logger.info(f"Ad sent to API successfully: {payload.get('title')}")
         except requests.exceptions.HTTPError as e:
             error_text = ""
             try:
@@ -141,5 +345,6 @@ class DatabasePipeline:
             spider.logger.error(f"Error sending ad to API: {e} | Data: {payload} | Response: {error_text}")
         except Exception as e:
             spider.logger.error(f"Error sending ad to API: {e} | Data: {payload}")
+        
         return item
 
