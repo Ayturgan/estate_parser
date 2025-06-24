@@ -1,6 +1,7 @@
 from sqlalchemy import (
-    Column, Integer, String, Float, Boolean, DateTime, JSON, ForeignKey, Text
+    Column, Integer, String, Float, Boolean, DateTime, ForeignKey, Text
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from app.database import Base
 from datetime import datetime
@@ -47,12 +48,12 @@ class DBAd(Base):
     hot_water = Column(String, nullable=True)
     gas = Column(String, nullable=True)
     ceiling_height = Column(Float, nullable=True)
-    phone_numbers = Column(JSON, nullable=True)
+    phone_numbers = Column(JSONB, nullable=True)
     location_id = Column(Integer, ForeignKey('locations.id', ondelete='CASCADE'), nullable=True, index=True)
     is_vip = Column(Boolean, default=False, index=True)
     published_at = Column(DateTime, nullable=True, index=True)
     parsed_at = Column(DateTime, nullable=True)
-    attributes = Column(JSON, nullable=True)
+    attributes = Column(JSONB, nullable=True)
     is_realtor = Column(Boolean, default=False, index=True)
     realtor_score = Column(Float, nullable=True)
 
@@ -67,11 +68,18 @@ class DBAd(Base):
     # Связь с фотографиями
     photos = relationship("DBPhoto", back_populates="ad", cascade="all, delete-orphan")
 
+    unique_ad_id = Column(Integer, ForeignKey('unique_ads.id', ondelete='SET NULL'), nullable=True, index=True)
+    unique_ad = relationship("DBUniqueAd", foreign_keys=[unique_ad_id], back_populates="original_ads")
+
     # Связь с дубликатами
     duplicate_info = relationship("DBAdDuplicate", back_populates="original_ad", uselist=False, cascade="all, delete-orphan")
+    
+    # Обратная связь к уникальным объявлениям, где это объявление является базовым
+    base_unique_ads = relationship("DBUniqueAd", foreign_keys="DBUniqueAd.base_ad_id", back_populates="base_ad")
 
     def __repr__(self):
         return f"<Ad(id={self.id}, title='{self.title}', price={self.price}, source='{self.source_name}')>"
+        
 
 
 class DBPhoto(Base):
@@ -99,7 +107,7 @@ class DBUniqueAd(Base):
     price = Column(Float, nullable=True, index=True)
     price_original = Column(String, nullable=True)
     currency = Column(String, nullable=True)
-    phone_numbers = Column(JSON, nullable=True)
+    phone_numbers = Column(JSONB, nullable=True)
     
     # Характеристики недвижимости
     rooms = Column(Integer, nullable=True, index=True)
@@ -110,7 +118,7 @@ class DBUniqueAd(Base):
     building_type = Column(String, nullable=True)
     condition = Column(String, nullable=True)
     repair = Column(String, nullable=True)
-    furniture = Column(String, nullable=True)
+    furniture = Column(String, nullable=True) 
     heating = Column(String, nullable=True)
     hot_water = Column(String, nullable=True)
     gas = Column(String, nullable=True)
@@ -127,11 +135,11 @@ class DBUniqueAd(Base):
     is_vip = Column(Boolean, default=False, index=True)
     is_realtor = Column(Boolean, default=False, index=True)
     realtor_score = Column(Float, nullable=True)
-    attributes = Column(JSON, nullable=True)
+    attributes = Column(JSONB, nullable=True)
     
     # Аналитические данные
-    photo_hashes = Column(JSON, nullable=True)
-    text_embeddings = Column(JSON, nullable=True)
+    photo_hashes = Column(JSONB, nullable=True)
+    text_embeddings = Column(JSONB, nullable=True)
     confidence_score = Column(Float, nullable=True)
     
     # Статистика
@@ -142,6 +150,8 @@ class DBUniqueAd(Base):
     # Связи
     photos = relationship("DBUniquePhoto", back_populates="unique_ad", cascade="all, delete-orphan")
     duplicates = relationship("DBAdDuplicate", back_populates="unique_ad", cascade="all, delete-orphan")
+    base_ad = relationship("DBAd", foreign_keys=[base_ad_id], back_populates="base_unique_ads")
+    original_ads = relationship("DBAd", foreign_keys="DBAd.unique_ad_id", back_populates="unique_ad")
 
     def __repr__(self):
         return f"<UniqueAd(id={self.id}, title='{self.title}', price={self.price})>"

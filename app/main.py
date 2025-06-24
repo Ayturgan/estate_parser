@@ -299,18 +299,17 @@ async def get_unique_ad_details(
     if base_ad:
         sources.append(AdSource(
             id=base_ad.id,
-            source_url=base_ad.source_url,
             source_name=base_ad.source_name,
+            source_url=str(base_ad.source_url) if base_ad.source_url is not None else None,
             published_at=base_ad.published_at,
             is_base=True
         ))
-    
-    for dup in duplicates:
+    for ad in duplicates:
         sources.append(AdSource(
-            id=dup.id,
-            source_url=dup.source_url,
-            source_name=dup.source_name,
-            published_at=dup.published_at,
+            id=ad.id,
+            source_name=ad.source_name,
+            source_url=str(ad.source_url) if ad.source_url is not None else None,
+            published_at=ad.published_at,
             is_base=False
         ))
     
@@ -468,9 +467,6 @@ async def create_ad(
         db.commit()
         db.refresh(db_ad)
         
-        # Запускаем обработку фото и дубликатов в фоне
-        background_tasks.add_task(process_ad_async, db_ad.id)
-        
         # Запускаем индексацию в Elasticsearch в фоне
         background_tasks.add_task(index_ad_in_elasticsearch, db_ad.id)
         
@@ -591,8 +587,8 @@ async def detect_realtors_async():
     try:
         db = SessionLocal()
         duplicate_service = DuplicateService()
-        await duplicate_service.detect_realtors_async(db)
-        db.close()
+        await duplicate_service.detect_all_realtors(db)
+        db.close()  
         logger.info("Realtor detection completed")
     except Exception as e:
         logger.error(f"Error in realtor detection: {e}")
@@ -643,29 +639,6 @@ async def search_ads(
     except Exception as e:
         logger.error(f"Error in search: {e}")
         raise HTTPException(status_code=500, detail=f"Search error: {str(e)}")
-
-@app.get("/search/suggest")
-async def suggest_addresses(
-    q: str = Query(..., min_length=2, description="Часть адреса для автодополнения"),
-    size: int = Query(5, ge=1, le=20, description="Количество предложений")
-):
-    """Автодополнение адресов"""
-    try:
-        suggestions = es_service.suggest_addresses(q, size)
-        return {"suggestions": suggestions}
-    except Exception as e:
-        logger.error(f"Error in address suggestions: {e}")
-        raise HTTPException(status_code=500, detail=f"Suggestions error: {str(e)}")
-
-@app.get("/search/aggregations")
-async def get_search_aggregations():
-    """Получение агрегаций для фильтров поиска"""
-    try:
-        aggregations = es_service.get_aggregations()
-        return aggregations
-    except Exception as e:
-        logger.error(f"Error getting aggregations: {e}")
-        raise HTTPException(status_code=500, detail=f"Aggregations error: {str(e)}")
 
 @app.get("/elasticsearch/health")
 async def elasticsearch_health():
