@@ -34,21 +34,18 @@ class UniversalSpider(scrapy.Spider):
             if field not in self.config:
                 raise ValueError(f"Missing required field '{field}' in config")
 
-    def start_requests(self):
-        """ИСПРАВЛЕНО: Синхронная точка входа вместо async start()"""
+    async def start(self):
         if self.config.get('use_playwright', True):
-            # Запускаем асинхронную функцию для получения куки
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
             try:
-                cookies, headers = loop.run_until_complete(self.get_cookies_and_headers())
+                cookies, headers = await self.get_cookies_and_headers()
                 cookie_header = "; ".join([f"{c['name']}={c['value']}" for c in cookies])
                 headers_to_use = {**headers, "cookie": cookie_header}
-            finally:
-                loop.close()
+            except Exception as e:
+                self.logger.error(f"Error getting cookies and headers: {e}")
+                return
         else:
             headers_to_use = self.config['headers']
-        
+
         yield scrapy.Request(
             url=self.config['api_url'],
             headers=headers_to_use,
