@@ -1,11 +1,10 @@
-# app/services/photo_service.py
 import asyncio
 import aiohttp
 from PIL import Image
 import io
 from imagehash import average_hash
 import logging
-from typing import List, Optional
+from typing import Optional
 from sqlalchemy.orm import Session
 from app import db_models
 import time
@@ -26,11 +25,9 @@ class PhotoService:
             return
         
         logger.info(f"Processing {len(ad.photos)} photos for ad {ad.id}")
-        
-        # Создаем задачи для обработки фотографий
         tasks = []
         for photo in ad.photos:
-            if not photo.hash:  # Обрабатываем только если хэш еще не вычислен
+            if not photo.hash:
                 task = self._process_single_photo_with_retry(photo)
                 tasks.append((photo, task))
         
@@ -39,8 +36,6 @@ class PhotoService:
             return
         
         logger.info(f"Processing {len(tasks)} photos without hashes for ad {ad.id}")
-        
-        # Выполняем все задачи параллельно
         for photo, task in tasks:
             try:
                 photo_hash = await task
@@ -51,8 +46,6 @@ class PhotoService:
                     logger.error(f"Failed to compute hash for photo {photo.url}")
             except Exception as e:
                 logger.error(f"Error processing photo {photo.url}: {e}")
-        
-        # Сохраняем изменения
         try:
             db.commit()
             logger.info(f"Successfully processed {len([t for t in tasks if t[0].hash])} photos for ad {ad.id}")
@@ -68,7 +61,7 @@ class PhotoService:
             except Exception as e:
                 logger.warning(f"Attempt {attempt + 1}/{self.max_retries} failed for photo {photo.url}: {e}")
                 if attempt < self.max_retries - 1:
-                    await asyncio.sleep(2 ** attempt)  # Экспоненциальная задержка
+                    await asyncio.sleep(2 ** attempt)
                 else:
                     logger.error(f"All {self.max_retries} attempts failed for photo {photo.url}")
                     return None
@@ -83,14 +76,9 @@ class PhotoService:
                     async with session.get(photo.url) as response:
                         if response.status == 200:
                             content = await response.read()
-                            
-                            # Проверяем, что это действительно изображение
                             if not content or len(content) < 100:
                                 raise Exception("Image too small or empty")
-                            
                             img = Image.open(io.BytesIO(content))
-                            
-                            # Конвертируем в RGB если нужно
                             if img.mode != 'RGB':
                                 img = img.convert('RGB')
                             
@@ -110,7 +98,6 @@ class PhotoService:
         """Обрабатывает все фотографии без хешей в базе данных"""
         logger.info("Starting batch processing of all unprocessed photos...")
         
-        # Получаем все фотографии без хешей
         unprocessed_photos = db.query(db_models.DBPhoto).filter(
             db_models.DBPhoto.hash.is_(None)
         ).limit(batch_size).all()
@@ -121,14 +108,11 @@ class PhotoService:
         
         logger.info(f"Found {len(unprocessed_photos)} unprocessed photos")
         
-        # Группируем фотографии по объявлениям для эффективной обработки
         photos_by_ad = {}
         for photo in unprocessed_photos:
             if photo.ad_id not in photos_by_ad:
                 photos_by_ad[photo.ad_id] = []
             photos_by_ad[photo.ad_id].append(photo)
-        
-        # Обрабатываем каждое объявление
         for ad_id, photos in photos_by_ad.items():
             try:
                 ad = db.query(db_models.DBAd).filter(db_models.DBAd.id == ad_id).first()

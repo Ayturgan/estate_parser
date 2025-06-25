@@ -1,0 +1,32 @@
+name: example
+start_urls:
+  - "https://example.com/real-estate/?page=1"
+
+selectors:
+  item: ".property-item"  # Селектор для каждого объявления в списке
+  title: ".property-title::text"  # Заголовок объявления
+  link: ".property-link::attr(href)"  # Ссылка на детальную страницу
+  price: ".property-price::text"  # Цена
+  rooms: ".property-rooms::text"  # Количество комнат
+  area: ".property-area::text"  # Площадь
+
+pagination:
+  next_page_selector: ".pagination-next::attr(href)"  # Селектор для следующей страницы
+
+max_pages: 10  # Максимальное количество страниц для парсинга
+
+detail:
+  follow_link: true  # Переходить на детальную страницу
+  use_playwright: false  # Использовать Playwright (true/false)
+  fields:
+    phone: ".contact-phone::text"  # Телефон
+    series: ".building-series::text"  # Серия дома
+    heating: ".heating-type::text"  # Тип отопления
+    floor: ".floor-number::text"  # Этаж
+    floor_total: ".total-floors::text"  # Всего этажей
+    furniture: ".furniture-status::text"  # Мебель
+    repair: ".repair-type::text"  # Ремонт
+    hot_water: ".hot-water::text"  # Горячая вода
+    gas: ".gas-status::text"  # Газ
+    description: ".property-description::text"  # Описание
+    created_at: ".creation-date::text"  # Дата создания 

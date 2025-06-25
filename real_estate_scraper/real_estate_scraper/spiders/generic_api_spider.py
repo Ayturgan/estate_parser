@@ -1,7 +1,6 @@
 import scrapy
 from playwright.async_api import async_playwright
 import asyncio
-import yaml
 import os
 from urllib.parse import urljoin
 from ..parsers.loader import load_config
@@ -89,7 +88,6 @@ class UniversalSpider(scrapy.Spider):
             self.logger.debug(f"Response text: {response.text[:500]}...")
             return
 
-        # Получаем путь к данным (например, "items" или "data.results")
         items_path = config.get('items_path', 'items')
         items = self.get_nested_value(data, items_path)
         
@@ -98,7 +96,6 @@ class UniversalSpider(scrapy.Spider):
             self.logger.debug(f"Data structure: {list(data.keys()) if isinstance(data, dict) else type(data)}")
             return
 
-        # Маппинг полей из конфига
         field_mapping = config.get('field_mapping', {})
         
         items_processed = 0
@@ -106,24 +103,20 @@ class UniversalSpider(scrapy.Spider):
             try:
                 result = {}
                 
-                # Обрабатываем простые поля
                 for output_field, input_path in field_mapping.items():
                     try:
                         if isinstance(input_path, str):
                             result[output_field] = self.get_nested_value(item, input_path)
                         elif isinstance(input_path, dict):
-                            # Сложная обработка полей
                             result[output_field] = self.process_complex_field(item, input_path)
                     except Exception as e:
                         self.logger.warning(f"Error processing field '{output_field}': {e}")
                         result[output_field] = None
                 
-                # Добавляем URL если нужно
                 if 'url' in result and config.get('make_absolute_url', True):
                     if result['url']:
                         result['url'] = urljoin(config['main_url'], result['url'])
                 
-                # НОВОЕ: Валидация и очистка данных перед yield
                 validated_result = self.validate_and_clean_item(result)
                 
                 if validated_result:
@@ -137,22 +130,19 @@ class UniversalSpider(scrapy.Spider):
         self.logger.info(f"Successfully processed {items_processed} items from API")
 
     def validate_and_clean_item(self, item):
-        """НОВОЕ: Валидация и базовая очистка данных"""
+        """Валидация и базовая очистка данных"""
         try:
-            # Проверяем обязательные поля
             if not item.get('title') and not item.get('url'):
                 self.logger.warning("Item missing both title and url, skipping")
                 return None
             
-            # Базовая очистка строковых полей
             string_fields = ['title', 'description', 'city', 'district', 'address']
             for field in string_fields:
                 if field in item and item[field]:
                     item[field] = str(item[field]).strip()
-                    if not item[field]:  # Если после strip стало пустым
+                    if not item[field]:
                         item[field] = None
             
-            # Преобразование булевых полей
             bool_fields = ['is_vip', 'is_realtor']
             for field in bool_fields:
                 if field in item and item[field] is not None:
@@ -217,7 +207,6 @@ class UniversalSpider(scrapy.Spider):
                 return None
                 
             elif field_type == 'custom':
-                # Для кастомной обработки
                 return self.custom_field_processor(item, field_config)
                 
         except Exception as e:
@@ -226,14 +215,11 @@ class UniversalSpider(scrapy.Spider):
         return None
 
     def custom_field_processor(self, item, field_config):
-        """Переопределяй этот метод для кастомной обработки полей"""
         return None
 
     def handle_error(self, failure):
-        """НОВОЕ: Обработчик ошибок"""
+        """Обработчик ошибок"""
         request = failure.request
         self.logger.error(f"Request failed for {request.url}: {failure.value}")
-        
-        # Можно добавить логику повторных попыток здесь
         return None
 

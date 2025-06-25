@@ -1,22 +1,11 @@
-# pipelines.py - ПОЛНОСТЬЮ ИСПРАВЛЕННАЯ ВЕРСИЯ с очисткой всех числовых полей
-
 import re
 from datetime import datetime
-from sqlalchemy.orm import Session
-from sqlalchemy.exc import IntegrityError
 from itemadapter import ItemAdapter
-from app.database import SessionLocal
-from app.db_models import DBAd, DBLocation, DBPhoto
 import requests
-import io
-from PIL import Image
-from imagehash import average_hash
-from app.utils.duplicate_processor import DuplicateProcessor
 
 
 class ParserPipeline:
     def process_item(self, item, spider):
-        # Просто передаёт item дальше
         return item
 
 
@@ -28,7 +17,6 @@ class DataCleaningPipeline:
     def process_item(self, item, spider):
         adapter = ItemAdapter(item)
         
-        # Очищаем цену и определяем валюту
         price_original = adapter.get("price")
         if price_original is not None:
             adapter["price_original"] = str(price_original)
@@ -37,40 +25,34 @@ class DataCleaningPipeline:
             adapter["currency"] = currency
             spider.logger.debug(f"Price cleaned: '{price_original}' -> {cleaned_price} {currency}")
         
-        # Очищаем площадь
         area_original = adapter.get("area") or adapter.get("area_sqm")
         if area_original is not None:
             cleaned_area = self.extract_number(str(area_original))
             adapter["area_sqm"] = cleaned_area
             spider.logger.debug(f"Area cleaned: '{area_original}' -> {cleaned_area}")
         
-        # Очищаем этаж
         floor_original = adapter.get("floor")
         if floor_original is not None:
             cleaned_floor = self.extract_floor_number(str(floor_original))
             adapter["floor"] = cleaned_floor
             spider.logger.debug(f"Floor cleaned: '{floor_original}' -> {cleaned_floor}")
         
-        # Очищаем общее количество этажей
         total_floors_original = adapter.get("total_floors")
         if total_floors_original is not None:
             cleaned_total_floors = self.extract_total_floors(str(total_floors_original))
             adapter["total_floors"] = cleaned_total_floors
             spider.logger.debug(f"Total floors cleaned: '{total_floors_original}' -> {cleaned_total_floors}")
         elif floor_original and "из" in str(floor_original):
-            # Извлекаем общее количество этажей из строки этажа
             total_floors = self.extract_total_floors_from_floor_string(str(floor_original))
             if total_floors:
                 adapter["total_floors"] = total_floors
         
-        # Очищаем количество комнат
         rooms_original = adapter.get("rooms")
         if rooms_original is not None:
             cleaned_rooms = self.extract_rooms_number(str(rooms_original))
             adapter["rooms"] = cleaned_rooms
             spider.logger.debug(f"Rooms cleaned: '{rooms_original}' -> {cleaned_rooms}")
         
-        # Очищаем высоту потолков
         ceiling_height_original = adapter.get("ceiling_height")
         if ceiling_height_original is not None:
             cleaned_ceiling_height = self.extract_number(str(ceiling_height_original))
@@ -88,8 +70,7 @@ class DataCleaningPipeline:
         
         price_str = str(price_str).strip()
         
-        # Определяем валюту по ключевым словам
-        currency = "USD"  # По умолчанию
+        currency = "USD"  
         
         if any(keyword in price_str.lower() for keyword in ['сом', 'som', 'kgs', 'кгс']):
             currency = "SOM"
@@ -98,11 +79,9 @@ class DataCleaningPipeline:
         elif any(keyword in price_str.lower() for keyword in ['eur', '€', 'евро', 'euro']):
             currency = "EUR"
         
-        # Удаляем все символы кроме цифр, точек и запятых
         cleaned = re.sub(r'[^\d.,]', '', price_str)
         cleaned = re.sub(r'\s+', '', cleaned)
         
-        # Обрабатываем разделители
         if '.' in cleaned and ',' in cleaned:
             last_dot = cleaned.rfind('.')
             last_comma = cleaned.rfind(',')
@@ -139,7 +118,6 @@ class DataCleaningPipeline:
         if not text:
             return None
         
-        # Ищем первое число в строке
         match = re.search(r'(\d+(?:[.,]\d+)?)', str(text))
         if match:
             number_str = match.group(1).replace(',', '.')
@@ -159,7 +137,6 @@ class DataCleaningPipeline:
         if not floor_str:
             return None
         
-        # Ищем число перед словом "этаж"
         match = re.search(r'(\d+)\s*(?:этаж|эт\.?)', str(floor_str), re.IGNORECASE)
         if match:
             try:
@@ -167,7 +144,6 @@ class DataCleaningPipeline:
             except (ValueError, TypeError):
                 return None
         
-        # Если не нашли, пробуем извлечь первое число
         return self.extract_number(floor_str)
     
     def extract_total_floors(self, total_floors_str):
@@ -177,7 +153,6 @@ class DataCleaningPipeline:
         if not total_floors_str:
             return None
         
-        # Ищем число после "из"
         match = re.search(r'из\s*(\d+)', str(total_floors_str), re.IGNORECASE)
         if match:
             try:
@@ -185,7 +160,6 @@ class DataCleaningPipeline:
             except (ValueError, TypeError):
                 return None
         
-        # Если не нашли, пробуем извлечь первое число
         return self.extract_number(total_floors_str)
     
     def extract_total_floors_from_floor_string(self, floor_str):
@@ -210,15 +184,12 @@ class DataCleaningPipeline:
         if not rooms_str:
             return None
         
-        # Ищем число перед "комн"
         match = re.search(r'(\d+)[-\s]*комн', str(rooms_str), re.IGNORECASE)
         if match:
             try:
                 return int(match.group(1))
             except (ValueError, TypeError):
                 return None
-        
-        # Если не нашли, пробуем извлечь первое число
         return self.extract_number(rooms_str)
 
 
@@ -226,12 +197,11 @@ class DatabasePipeline:
     """
     Пайплайн для отправки объявлений через API FastAPI (POST /ads)
     """
-    API_URL = "http://localhost:8000/ads"
+    API_URL = "http://api:8000/ads"
 
     def process_item(self, item, spider):
         adapter = ItemAdapter(item)
         
-        # Определяем source_name
         source_name = None
         if hasattr(spider, "config"):
             source_name = spider.config.get("source_name", None)
@@ -246,7 +216,6 @@ class DatabasePipeline:
             else:
                 source_name = "unknown"
 
-        # Формируем location
         city = adapter.get('city')
         district = adapter.get('district')
         address_line = adapter.get('address')
@@ -267,11 +236,9 @@ class DatabasePipeline:
                 "address": address_line
             }
 
-        # Формируем список фото
         images = adapter.get('images') or ([adapter.get('main_image_url')] if adapter.get('main_image_url') else [])
         photos = [{"url": url} for url in images if url]
 
-        # Формируем номера телефонов
         phone_numbers = []
         phone = adapter.get('phone')
         mobile = adapter.get('mobile')
@@ -280,7 +247,6 @@ class DatabasePipeline:
         elif mobile:
             phone_numbers.append(mobile)
 
-        # Формируем published_at
         published_at = None
         created_time = adapter.get('created_at')
         if created_time:
@@ -298,20 +264,18 @@ class DatabasePipeline:
                     except Exception:
                         published_at = None
 
-        # Формируем payload для API
         payload = {
             "source_id": adapter.get("source_id"),
             "source_url": adapter.get("link") or adapter.get("url"),
             "source_name": source_name,
             "title": adapter.get("title"),
             "description": adapter.get("description"),
-            "price": adapter.get("price"),  # Уже очищенное числовое значение
-            "price_original": adapter.get("price_original"),  # Оригинальная строка
+            "price": adapter.get("price"), 
             "currency": adapter.get("currency") or "USD",
-            "rooms": adapter.get("rooms"),  # Уже очищенное числовое значение
-            "area_sqm": adapter.get("area_sqm"),  # Уже очищенное числовое значение
-            "floor": adapter.get("floor"),  # Уже очищенное числовое значение
-            "total_floors": adapter.get("total_floors"),  # Уже очищенное числовое значение
+            "rooms": adapter.get("rooms"),  
+            "area_sqm": adapter.get("area_sqm"), 
+            "floor": adapter.get("floor"), 
+            "total_floors": adapter.get("total_floors"),  
             "series": adapter.get("series"),
             "building_type": adapter.get("building_type") or adapter.get("building"),
             "condition": adapter.get("condition"),
@@ -320,7 +284,7 @@ class DatabasePipeline:
             "heating": adapter.get("heating"),
             "hot_water": adapter.get("hot_water"),
             "gas": adapter.get("gas"),
-            "ceiling_height": adapter.get("ceiling_height"),  # Уже очищенное числовое значение
+            "ceiling_height": adapter.get("ceiling_height"),
             "phone_numbers": phone_numbers,
             "location": location,
             "photos": photos,
@@ -329,7 +293,6 @@ class DatabasePipeline:
             "is_vip": adapter.get("is_vip"),
         }
         
-        # Удаляем поля со значением None или пустой строкой
         payload = {k: v for k, v in payload.items() if v not in [None, ""]}
 
         try:

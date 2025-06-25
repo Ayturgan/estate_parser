@@ -14,8 +14,6 @@ class DBLocation(Base):
     city = Column(String, nullable=True, index=True)
     district = Column(String, nullable=True, index=True)
     address = Column(String, nullable=True, index=True)
-
-    # Обратная связь к объявлениям с каскадным удалением
     ads = relationship("DBAd", back_populates="location", cascade="all, delete-orphan")
     unique_ads = relationship("DBUniqueAd", back_populates="location", cascade="all, delete-orphan")
 
@@ -74,7 +72,6 @@ class DBAd(Base):
     # Связь с дубликатами
     duplicate_info = relationship("DBAdDuplicate", back_populates="original_ad", uselist=False, cascade="all, delete-orphan")
     
-    # Обратная связь к уникальным объявлениям, где это объявление является базовым
     base_unique_ads = relationship("DBUniqueAd", foreign_keys="DBUniqueAd.base_ad_id", back_populates="base_ad")
 
     def __repr__(self):
@@ -89,8 +86,6 @@ class DBPhoto(Base):
     url = Column(String, nullable=False, index=True)
     hash = Column(String, nullable=True, index=True)
     ad_id = Column(Integer, ForeignKey('ads.id', ondelete='CASCADE'), index=True)
-
-    # Связь с объявлением
     ad = relationship("DBAd", back_populates="photos")
 
     def __repr__(self):
@@ -108,8 +103,6 @@ class DBUniqueAd(Base):
     price_original = Column(String, nullable=True)
     currency = Column(String, nullable=True)
     phone_numbers = Column(JSONB, nullable=True)
-    
-    # Характеристики недвижимости
     rooms = Column(Integer, nullable=True, index=True)
     area_sqm = Column(Float, nullable=True, index=True)
     floor = Column(Integer, nullable=True)
@@ -123,31 +116,19 @@ class DBUniqueAd(Base):
     hot_water = Column(String, nullable=True)
     gas = Column(String, nullable=True)
     ceiling_height = Column(Float, nullable=True)
-    
-    # Локация
     location_id = Column(Integer, ForeignKey('locations.id', ondelete='CASCADE'), nullable=True, index=True)
     location = relationship("DBLocation", back_populates="unique_ads")
-    
-    # Новое поле: ссылка на базовое объявление
     base_ad_id = Column(Integer, ForeignKey('ads.id', ondelete='SET NULL'), nullable=True)
-    
-    # Метаданные
     is_vip = Column(Boolean, default=False, index=True)
     is_realtor = Column(Boolean, default=False, index=True)
     realtor_score = Column(Float, nullable=True)
     attributes = Column(JSONB, nullable=True)
-    
-    # Аналитические данные
     photo_hashes = Column(JSONB, nullable=True)
     text_embeddings = Column(JSONB, nullable=True)
     confidence_score = Column(Float, nullable=True)
-    
-    # Статистика
     duplicates_count = Column(Integer, default=0, index=True)
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    
-    # Связи
     photos = relationship("DBUniquePhoto", back_populates="unique_ad", cascade="all, delete-orphan")
     duplicates = relationship("DBAdDuplicate", back_populates="unique_ad", cascade="all, delete-orphan")
     base_ad = relationship("DBAd", foreign_keys=[base_ad_id], back_populates="base_unique_ads")
@@ -165,8 +146,6 @@ class DBUniquePhoto(Base):
     url = Column(String, nullable=False, index=True)
     hash = Column(String, nullable=True, index=True)
     unique_ad_id = Column(Integer, ForeignKey('unique_ads.id', ondelete='CASCADE'), index=True)
-    
-    # Связь с уникальным объявлением
     unique_ad = relationship("DBUniqueAd", back_populates="photos")
 
     def __repr__(self):
@@ -180,18 +159,12 @@ class DBAdDuplicate(Base):
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     unique_ad_id = Column(Integer, ForeignKey('unique_ads.id', ondelete='CASCADE'), index=True)
     original_ad_id = Column(Integer, ForeignKey('ads.id', ondelete='CASCADE'), index=True)
-    
-    # Метрики схожести
     photo_similarity = Column(Float, nullable=True)
     text_similarity = Column(Float, nullable=True)
     contact_similarity = Column(Float, nullable=True)
     address_similarity = Column(Float, nullable=True)
     overall_similarity = Column(Float, nullable=True)
-    
-    # Метаданные
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
-    
-    # Связи
     unique_ad = relationship("DBUniqueAd", back_populates="duplicates")
     original_ad = relationship("DBAd", back_populates="duplicate_info")
 

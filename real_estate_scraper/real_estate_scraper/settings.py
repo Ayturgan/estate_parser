@@ -1,9 +1,6 @@
-# real_estate_scraper/real_estate_scraper/settings.py
 import sys
-import os
 from pathlib import Path
 
-# Добавляем корневую директорию проекта в sys.path
 project_root = Path(__file__).resolve().parent.parent.parent
 sys.path.append(str(project_root)) 
 
@@ -13,7 +10,7 @@ SPIDER_MODULES = ["real_estate_scraper.spiders"]
 NEWSPIDER_MODULE = "real_estate_scraper.spiders"
 
 # Настройки User-Agent
-USER_AGENT = None  # Отключаем дефолтный User-Agent
+USER_AGENT = None
 
 # Соблюдаем robots.txt
 ROBOTSTXT_OBEY = True
@@ -62,7 +59,7 @@ LOG_DATEFORMAT = '%Y-%m-%d %H:%M:%S'
 FEED_EXPORT_ENCODING = "utf-8"
 
 # Настройки для базы данных
-DATABASE_URL = "postgresql://real_estate_user:admin123@localhost:5432/real_estate_db"
+DATABASE_URL = "postgresql://real_estate_user:admin123@db:5432/real_estate_db"
 
 ITEM_PIPELINES = {
     'real_estate_scraper.pipelines.DataCleaningPipeline': 200,  # Сначала очищаем цену

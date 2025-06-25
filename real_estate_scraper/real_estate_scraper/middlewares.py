@@ -9,9 +9,6 @@ from .user_agents import USER_AGENTS
 # from .proxy_config import proxy_config
 from scrapy.downloadermiddlewares.useragent import UserAgentMiddleware
 
-# useful for handling different item types with a single interface
-from itemadapter import ItemAdapter
-
 
 class ParserSpiderMiddleware:
     # Not all methods need to be defined. If a method is not defined,
@@ -107,7 +104,7 @@ class ParserDownloaderMiddleware:
 
 class ProxyMiddleware:
     def process_request(self, request, spider):
-        # Получаем случайный прокси из конфигурации (закомментировано)
+        # Получаем случайный прокси из конфигурации
         # proxy = proxy_config.get_random_proxy()
         # if proxy:
         #     request.meta['proxy'] = proxy['http']
@@ -120,11 +117,9 @@ class ProxyMiddleware:
 class RetryMiddleware:
     def process_response(self, request, response, spider):
         if response.status in [500, 502, 503, 504, 522, 524, 408, 429]:
-            # Увеличиваем счетчик попыток
             retry_count = request.meta.get('retry_count', 0)
-            if retry_count < 3:  # Максимум 3 попытки
+            if retry_count < 3:  
                 request.meta['retry_count'] = retry_count + 1
-                # Увеличиваем задержку с каждой попыткой
                 request.meta['download_timeout'] = 30 * (retry_count + 1)
                 return request
         return response

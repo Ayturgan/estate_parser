@@ -5,11 +5,8 @@ from elasticsearch_dsl import Search, Q
 from typing import List, Dict, Optional, Any
 import logging
 from datetime import datetime
-import json
 
 logger = logging.getLogger(__name__)
-
-# Кастомный анализатор для русского языка
 russian_analyzer = analyzer(
     'russian_analyzer',
     tokenizer=tokenizer('standard'),
@@ -20,8 +17,6 @@ russian_analyzer = analyzer(
         'word_delimiter'
     ]
 )
-
-# Анализатор для точного поиска
 exact_analyzer = analyzer(
     'exact_analyzer',
     tokenizer=tokenizer('keyword'),
@@ -31,7 +26,6 @@ exact_analyzer = analyzer(
 class RealEstateDocument(Document):
     """Elasticsearch документ для объявлений о недвижимости"""
     
-    # Основные поля
     title = Text(
         analyzer=russian_analyzer,
         fields={
@@ -48,13 +42,9 @@ class RealEstateDocument(Document):
     source_name = Keyword()
     source_url = Keyword()
     source_id = Keyword()
-    
-    # Ценовые поля
     price = Float()
     price_original = Text()
     currency = Keyword()
-    
-    # Характеристики недвижимости
     rooms = Integer()
     area_sqm = Float()
     floor = Integer()
@@ -92,8 +82,6 @@ class RealEstateDocument(Document):
         fields={'raw': Keyword()}
     )
     ceiling_height = Float()
-    
-    # Географические данные
     city = Text(
         analyzer=russian_analyzer,
         fields={'raw': Keyword()}
@@ -110,21 +98,15 @@ class RealEstateDocument(Document):
         }
     )
     location = GeoPoint()
-    
-    # Метаданные
     is_vip = Boolean()
     is_realtor = Boolean()
     realtor_score = Float()
     duplicates_count = Integer()
     published_at = Date()
     created_at = Date()
-    
-    # Агрегированные данные
     phone_numbers = Keyword(multi=True)
     photo_urls = Keyword(multi=True)
-    
-    # Дополнительные поля для поиска
-    search_text = Text(analyzer=russian_analyzer)  # Объединенный текст для поиска
+    search_text = Text(analyzer=russian_analyzer)
     
     class Index:
         name = 'real_estate_ads'
@@ -168,8 +150,6 @@ class ElasticsearchService:
     def __init__(self, hosts: List[str] = None, index_name: str = None):
         self.hosts = hosts or ['http://localhost:9200']
         self.index_name = index_name or 'real_estate_ads'
-        
-        # Настройка клиента
         self.client = Elasticsearch(
             self.hosts,
             timeout=30,
@@ -339,16 +319,11 @@ class ElasticsearchService:
     def index_ad(self, ad_data: Dict) -> bool:
         """Индексация объявления"""
         try:
-            # Подготовка данных для индексации
             search_text_parts = []
-            
-            # Добавляем основные текстовые поля в поисковый текст
             if ad_data.get('title'):
                 search_text_parts.append(ad_data['title'])
             if ad_data.get('description'):
                 search_text_parts.append(ad_data['description'])
-            
-            # Проверяем 'location' перед доступом к его полям
             location_data = ad_data.get('location')
             if location_data and location_data.get('address'):
                 search_text_parts.append(location_data['address'])
@@ -357,8 +332,6 @@ class ElasticsearchService:
                 search_text_parts.append(ad_data['series'])
             if ad_data.get('building_type'):
                 search_text_parts.append(ad_data['building_type'])
-            
-            # Создаем документ для индексации
             doc_data = {
                 'title': ad_data.get('title', ''),
                 'description': ad_data.get('description', ''),
@@ -394,20 +367,14 @@ class ElasticsearchService:
                 'photo_urls': [photo['url'] for photo in ad_data.get('photos', []) if photo and 'url' in photo],
                 'search_text': ' '.join(search_text_parts)
             }
-            
-            # Добавляем location только если есть данные для GeoPoint
             if location_data and location_data.get('lat') is not None and location_data.get('lon') is not None:
                 doc_data['location'] = {
                     'lat': location_data['lat'],
                     'lon': location_data['lon']
                 }
             else:
-                doc_data['location'] = None # Устанавливаем None, если нет координат
-
-            # Удаляем поля со значением None, чтобы Elasticsearch использовал значения по умолчанию или игнорировал их
+                doc_data['location'] = None
             doc_data_cleaned = {k: v for k, v in doc_data.items() if v is not None}
-
-            # Индексируем документ
             self.client.index(
                 index=self.index_name,
                 id=ad_data['id'],
@@ -422,15 +389,10 @@ class ElasticsearchService:
     def reindex_all(self, ads_data: List[Dict]) -> bool:
         """Переиндексация всех объявлений"""
         try:
-            # Удаляем старый индекс, если он существует
             if self.client.indices.exists(index=self.index_name):
                 self.client.indices.delete(index=self.index_name)
                 logger.info(f"Old index {self.index_name} deleted")
-            
-            # Создаем новый индекс с актуальным маппингом
             self.create_index()
-            
-            # Индексируем каждое объявление
             success_count = 0
             for ad in ads_data:
                 if self.index_ad(ad):
@@ -455,28 +417,21 @@ class ElasticsearchService:
                     fuzziness='AUTO'
                 )
             )
-        
-        # Обработка диапазона цены только по полю price
         price_range = {}
         if filters:
             if 'min_price' in filters:
                 price_range['gte'] = filters['min_price']
             if 'max_price' in filters:
                 price_range['lte'] = filters['max_price']
-            # Удаляем min_price и max_price из filters, чтобы не было попытки фильтровать по несуществующим полям
             filters = {k: v for k, v in filters.items() if k not in ['min_price', 'max_price']}
         if price_range:
             s = s.filter('range', price=price_range)
-        # Остальные фильтры только по существующим полям
         if filters:
             for key, value in filters.items():
                 s = s.filter('term', **{key: value})
-        
-        # Сортировка
         if sort_by != "relevance":
             order = '-' if sort_order == 'desc' else ''
             s = s.sort(f"{order}{sort_by}")
-        # Пагинация
         from_ = (page - 1) * size
         s = s.extra(from_=from_, size=size)
         

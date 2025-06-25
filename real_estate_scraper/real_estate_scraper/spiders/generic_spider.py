@@ -1,10 +1,6 @@
-# generic_spider.py - ПОЛНОСТЬЮ ИСПРАВЛЕННАЯ ВЕРСИЯ БЕЗ МЕЛКИХ ОШИБОК
-
 import scrapy
 from scrapy_playwright.page import PageMethod
 from ..parsers.loader import load_config, extract_value
-import asyncio
-import logging
 import time
 import random
 
@@ -113,7 +109,6 @@ class GenericSpider(scrapy.Spider):
 
         self.logger.info(f"Found {items_found} items on page {self.current_page}")
 
-        # Пагинация
         next_page_selector = self.pagination.get("next_page_selector")
         if next_page_selector and self.current_page < self.max_pages:
             try:
@@ -141,18 +136,16 @@ class GenericSpider(scrapy.Spider):
                 self.logger.error(f"Error in pagination: {e}")
 
     def parse_detail(self, response):
-        """ИСПРАВЛЕНО: Парсинг детальной страницы с проверкой типа контента"""
+        """Парсинг детальной страницы с проверкой типа контента"""
         item = response.meta["item"]
         
         try:
-            # НОВОЕ: Проверяем тип контента
             content_type = response.headers.get('content-type', b'').decode('utf-8').lower()
             if 'text/html' not in content_type:
                 self.logger.warning(f"Non-HTML content type: {content_type} for {response.url}")
-                yield item  # Возвращаем элемент без детальных данных
+                yield item
                 return
             
-            # НОВОЕ: Проверяем, что response содержит текст
             if not hasattr(response, 'text') or not response.text:
                 self.logger.warning(f"Empty or non-text response for {response.url}")
                 yield item
@@ -183,29 +176,24 @@ class GenericSpider(scrapy.Spider):
         yield item
 
     async def page_init_callback(self, page, request):
-        """ИСПРАВЛЕНО: Callback для инициализации Playwright страницы"""
+        """Callback для инициализации Playwright страницы"""
         if not page:
             self.logger.debug("Page object is None in page_init_callback")
             return
             
         try:
-            # НОВОЕ: Проверяем, что page не закрыта
             if page.is_closed():
                 self.logger.debug("Page is already closed")
                 return
                 
-            # Устанавливаем таймауты
             await page.set_default_timeout(60000)
             await page.set_default_navigation_timeout(60000)
             
-            # Отключаем загрузку ненужных ресурсов для ускорения
             await page.route("**/*.{png,jpg,jpeg,gif,svg,ico,woff,woff2}", lambda route: route.abort())
             
-            # Добавляем обработку ошибок (но не логируем их как ERROR)
             page.on("pageerror", lambda err: self.logger.debug(f"Page error: {err}"))
             page.on("requestfailed", lambda request: self.logger.debug(f"Request failed: {request.url}"))
             
-            # Добавляем случайные задержки
             await page.wait_for_timeout(random.randint(1000, 3000))
             
         except Exception as e:
@@ -236,12 +224,10 @@ class GenericSpider(scrapy.Spider):
             self.failed_items += 1
 
     def closed(self, reason):
-        """ИСПРАВЛЕНО: Корректное закрытие спайдера"""
         self.logger.info(f"Spider closed: {reason}")
         self.logger.info(f"Processed items: {self.processed_items}")
         self.logger.info(f"Failed items: {self.failed_items}")
         
-        # НОВОЕ: Даем время на завершение Playwright задач
         time.sleep(2)
         
         if reason == 'finished':

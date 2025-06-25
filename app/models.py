@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field, HttpUrl
-from typing import List, Optional, Dict, Any, Union
+from typing import List, Optional, Dict, Any
 from datetime import datetime
 
 
@@ -118,8 +118,6 @@ class Ad(BaseModel):
     processed_at: Optional[datetime] = Field(None, description="Дата и время обработки объявления на дубликаты")
     duplicate_info: Optional[DuplicateInfo] = Field(None, description="Информация о дубликате, если объявление является дубликатом")
 
-# --- Модели для ответов API (перенесены из main.py) ---
-
 class PaginatedUniqueAdsResponse(BaseModel):
     total: int
     offset: int
@@ -153,8 +151,6 @@ class StatsResponse(BaseModel):
     realtor_ads: int
     deduplication_ratio: float
 
-
-# Валидация и модели запросов
 class AdCreateRequest(BaseModel):
     source_id: Optional[str] = None
     source_url: str

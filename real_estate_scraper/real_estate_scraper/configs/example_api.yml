@@ -1,25 +1,29 @@
-# Пример конфига для другого сайта
-api_url: "https://example.com/api/products?page=1&limit=50"
-main_url: "https://example.com"
-use_playwright: false  # Не используем Playwright для простых API
-make_absolute_url: true
-items_path: "data.products"  # Вложенный путь к данным
+# Пример конфигурации для парсинга через API
+# Используется для сайтов, которые предоставляют JSON API
 
+api_url: "https://example.com/api/products?page=1&limit=50"  # URL API endpoint с параметрами
+main_url: "https://example.com"  # Основной URL сайта для формирования абсолютных ссылок
+use_playwright: false  # Не используем Playwright для простых API запросов
+make_absolute_url: true  # Преобразовывать относительные URL в абсолютные
+items_path: "data.products"  # JSON путь к массиву объявлений (например: data.products или results)
+
+# Заголовки для HTTP запросов к API
 headers:
-  Accept: "application/json"
-  User-Agent: "Mozilla/5.0 (compatible; Parser/1.0)"
-  X-API-Key: "your-api-key-here"
+  Accept: "application/json"  # Ожидаем JSON ответ
+  User-Agent: "Mozilla/5.0 (compatible; Parser/1.0)"  # User-Agent для запросов
+  X-API-Key: "your-api-key-here"  # API ключ (если требуется авторизация)
 
+# Маппинг полей из JSON ответа в поля объявления
 field_mapping:
-  title: "name"
-  price: "price.amount"
-  currency: "price.currency"
-  description: "description"
-  url: "slug"
+  title: "name"  # Заголовок объявления
+  price: "price.amount"  # Цена (поддержка вложенных полей)
+  currency: "price.currency"  # Валюта
+  description: "description"  # Описание объявления
+  url: "slug"  # URL или slug объявления
   
-  # Пример кастомного поля
+  # Пример кастомного поля для главного изображения
   main_image_url:
-    type: "main_image"
-    source_path: "photos"
-    main_field: "is_primary"
-    url_field: "url"
+    type: "main_image"  # Тип поля - главное изображение
+    source_path: "photos"  # Путь к массиву фотографий
+    main_field: "is_primary"  # Поле, определяющее главное фото
+    url_field: "url"  # Поле с URL изображения

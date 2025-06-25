@@ -1,6 +1,5 @@
-# app/services/duplicate_service.py
 import asyncio
-from typing import List, Dict
+from typing import Dict
 from sqlalchemy.orm import Session
 from app import db_models
 from app.utils.duplicate_processor import DuplicateProcessor
@@ -15,22 +14,15 @@ class DuplicateService:
     async def process_pending_ads(self, db: Session) -> Dict[str, int]:
         """Обрабатывает все необработанные объявления"""
         processor = DuplicateProcessor(db)
-        
-        # Получаем количество необработанных объявлений
         pending_count = db.query(db_models.DBAd).filter(
             db_models.DBAd.is_processed == False
         ).count()
         
         if pending_count == 0:
             return {"processed": 0, "pending": 0}
-        
-        # Обрабатываем батчами
         total_processed = 0
         while True:
-            # Обрабатываем один батч
             processor.process_new_ads(self.batch_size)
-            
-            # Проверяем, остались ли необработанные
             remaining = db.query(db_models.DBAd).filter(
                 db_models.DBAd.is_processed == False
             ).count()
@@ -42,8 +34,7 @@ class DuplicateService:
             
             if remaining == 0:
                 break
-            
-            # Небольшая пауза между батчами
+
             await asyncio.sleep(0.1)
         
         return {"processed": total_processed, "pending": 0}
@@ -51,14 +42,8 @@ class DuplicateService:
     async def detect_all_realtors(self, db: Session) -> Dict[str, int]:
         """Обнаруживает всех риэлторов"""
         processor = DuplicateProcessor(db)
-        
-        # Сбрасываем предыдущие флаги
         processor.reset_realtor_flags()
-        
-        # Запускаем обнаружение
         processor.detect_realtors()
-        
-        # Получаем статистику
         stats = processor.get_realtor_statistics()
         
         return {

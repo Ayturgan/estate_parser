@@ -32,17 +32,14 @@ def to_elasticsearch_dict(ad: UniqueAd) -> dict:
             return [clean_value(x) for x in v]
         if isinstance(v, dict):
             return {kk: clean_value(vv) for kk, vv in v.items()}
-        # HttpUrl и другие pydantic-типы
         if hasattr(v, 'url') and hasattr(v, '__str__'):
             return str(v)
         if isinstance(v, (pydantic.BaseModel,)):
             return clean_value(v.dict())
         if hasattr(v, 'isoformat'):
             return v.isoformat()
-        # Оставляем числа, bool, str
         if isinstance(v, (int, float, bool, str)):
             return v
-        # Всё остальное — строкой
         return str(v)
     if hasattr(ad, 'dict'):
         ad = ad.dict()
@@ -50,19 +47,14 @@ def to_elasticsearch_dict(ad: UniqueAd) -> dict:
 
 
 def transform_unique_ad(db_unique_ad: DBUniqueAd) -> UniqueAd:
-    # Преобразуем фотографии в строки URL
     photos = []
     for photo in db_unique_ad.photos:
         photos.append({
             'url': str(photo.url),
             'hash': photo.hash
         })
-    
-    # Преобразуем даты в строки ISO
     created_at = db_unique_ad.created_at.isoformat() if db_unique_ad.created_at else None
     updated_at = db_unique_ad.updated_at.isoformat() if db_unique_ad.updated_at else None
-    
-    # Преобразуем location
     location_data = None
     if db_unique_ad.location:
         location_data = {
@@ -108,7 +100,6 @@ def transform_unique_ad(db_unique_ad: DBUniqueAd) -> UniqueAd:
 
 def transform_ad(db_ad: DBAd) -> Ad:
     """Преобразует DBAd в Ad"""
-    # Преобразуем атрибуты из JSON в словарь
     attributes = {}
     if db_ad.attributes:
         try:
@@ -118,21 +109,15 @@ def transform_ad(db_ad: DBAd) -> Ad:
                 attributes = db_ad.attributes
         except json.JSONDecodeError:
             pass
-
-    # Преобразуем фотографии в строки URL
     photos = []
     for photo in db_ad.photos:
         photos.append({
             'url': str(photo.url),
             'hash': photo.hash
         })
-    
-    # Преобразуем даты в строки ISO
     published_at = db_ad.published_at.isoformat() if db_ad.published_at else None
     parsed_at = db_ad.parsed_at.isoformat() if db_ad.parsed_at else None
     processed_at = db_ad.processed_at.isoformat() if db_ad.processed_at else None
-    
-    # Преобразуем location
     location_data = None
     if db_ad.location:
         location_data = {
@@ -140,8 +125,6 @@ def transform_ad(db_ad: DBAd) -> Ad:
             'district': db_ad.location.district,
             'city': db_ad.location.city
         }
-    
-    # Преобразуем duplicate_info
     duplicate_info_data = None
     if db_ad.duplicate_info:
         duplicate_info_data = {

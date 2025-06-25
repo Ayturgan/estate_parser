@@ -1,5 +1,3 @@
-# create_db_tables.py
-
 from app.database import Base, engine
 from sqlalchemy import text
 from sqlalchemy.exc import ProgrammingError
@@ -10,7 +8,6 @@ from app.db_models import (
 
 def drop_fk_constraints():
     with engine.connect() as conn:
-        # Отключаем ограничения для корректного удаления таблиц
         try:
             conn.execute(text('ALTER TABLE ads DROP CONSTRAINT IF EXISTS ads_unique_ad_id_fkey;'))
         except ProgrammingError:
@@ -23,7 +20,6 @@ def drop_fk_constraints():
 
 def drop_tables():
     with engine.connect() as conn:
-        # Удаляем таблицы в правильном порядке (сначала зависимые)
         for table in ["ad_duplicates", "unique_photos", "photos", "ads", "unique_ads", "locations"]:
             try:
                 conn.execute(text(f'DROP TABLE IF EXISTS {table} CASCADE;'))
@@ -39,5 +35,5 @@ def create_tables():
 
 if __name__ == "__main__":
     create_tables()
-    print("Таблицы успешно пересозданы!")
+    print("Таблицы успешно созданы!")
 

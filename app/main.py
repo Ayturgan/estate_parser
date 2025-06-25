@@ -2,18 +2,15 @@ from fastapi import FastAPI, HTTPException, status, Depends, Query, BackgroundTa
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Dict, Optional, Union
 from datetime import datetime
-from sqlalchemy.orm import Session, joinedload, selectinload
-from sqlalchemy import and_, or_, func, desc
-from pydantic import BaseModel, Field, validator
+from sqlalchemy.orm import Session, selectinload
+from sqlalchemy import and_, func, desc
 import logging
-import asyncio
-import aiohttp
 from contextlib import asynccontextmanager
 import redis
 import json
 from cachetools import TTLCache
 
-from app.models import Ad, Location, Photo, UniqueAd, AdCreateRequest, PaginatedUniqueAdsResponse, PaginatedAdsResponse, AdSource, DuplicateInfo, StatsResponse
+from app.models import Ad, AdCreateRequest, PaginatedUniqueAdsResponse, AdSource, DuplicateInfo, StatsResponse
 from app.database import get_db, SessionLocal
 from app import db_models
 from app.utils.transform import transform_ad, transform_unique_ad
@@ -23,17 +20,14 @@ from app.services.photo_service import PhotoService
 from app.services.duplicate_service import DuplicateService
 from app.services.elasticsearch_service import ElasticsearchService
 
-# Настройка логирования
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
-# Кэш в памяти для быстрого доступа
-memory_cache = TTLCache(maxsize=1000, ttl=300)  # 5 минут
+memory_cache = TTLCache(maxsize=1000, ttl=300)  
 
-# Redis для распределенного кэша
 try:
     redis_client = redis.from_url(REDIS_URL) if REDIS_URL else None
 except:
@@ -43,10 +37,8 @@ except:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Управление жизненным циклом приложения"""
-    # Startup
     logger.info("Starting Real Estate API...")
     yield
-    # Shutdown
     logger.info("Shutting down Real Estate API...")
 
 app = FastAPI(
@@ -56,10 +48,9 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # В продакшене указать конкретные домены
+    allow_origins=["*"], 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -73,11 +64,9 @@ es_service = ElasticsearchService(hosts=ELASTICSEARCH_HOSTS, index_name=ELASTICS
 # Вспомогательные функции
 async def get_from_cache(key: str) -> Optional[str]:
     """Получение данных из кэша"""
-    # Сначала проверяем память
     if key in memory_cache:
         return memory_cache[key]
     
-    # Затем Redis
     if redis_client:
         try:
             return await redis_client.get(key)
@@ -87,10 +76,7 @@ async def get_from_cache(key: str) -> Optional[str]:
 
 async def set_cache(key: str, value: str, ttl: int = 300):
     """Сохранение данных в кэш"""
-    # Сохраняем в память
     memory_cache[key] = value
-    
-    # Сохраняем в Redis
     if redis_client:
         try:
             await redis_client.setex(key, ttl, value)
@@ -114,7 +100,6 @@ def build_unique_ads_query(
     if not filters:
         return query
         
-    # Применяем фильтры
     if filters.get('is_realtor') is not None:
         query = query.filter(db_models.DBUniqueAd.is_realtor == filters['is_realtor'])
     
@@ -151,7 +136,7 @@ def build_unique_ads_query(
     
     return query
 
-# Основные эндпоинты согласно ТЗ
+# Основные эндпоинты
 
 @app.get("/", response_model=Dict[str, str])
 async def read_root():
@@ -166,7 +151,6 @@ async def read_root():
 async def get_status(db: Session = Depends(get_db)):
     """Статус системы"""
     try:
-        # Быстрая проверка БД
         total_unique = db.query(func.count(db_models.DBUniqueAd.id)).scalar()
         total_ads = db.query(func.count(db_models.DBAd.id)).scalar()
         
@@ -184,7 +168,7 @@ async def get_status(db: Session = Depends(get_db)):
             "error": str(e)
         }
 
-# ТЗ №5: GET /ads/unique — список всех уникальных объявлений
+#GET /ads/unique — список всех уникальных объявлений
 @app.get("/ads/unique", response_model=PaginatedUniqueAdsResponse)
 async def get_unique_ads(
     db: Session = Depends(get_db),
@@ -203,11 +187,7 @@ async def get_unique_ads(
     offset: int = Query(0, ge=0, description="Смещение")
 ):
     """Получает список уникальных объявлений с фильтрацией"""
-    
-    # Создаем ключ кэша
     cache_key = f"unique_ads:{hash(str(locals()))}"
-    
-    # Проверяем кэш
     cached = await get_from_cache(cache_key)
     if cached:
         return json.loads(cached)
@@ -226,7 +206,6 @@ async def get_unique_ads(
     
     query = build_unique_ads_query(db, filters)
     
-    # Сортировка
     if sort_by == "price":
         order_col = db_models.DBUniqueAd.price
     elif sort_by == "area_sqm":
@@ -234,17 +213,13 @@ async def get_unique_ads(
     elif sort_by == "duplicates_count":
         order_col = db_models.DBUniqueAd.duplicates_count
     else:
-        order_col = db_models.DBUniqueAd.id  # created_at по умолчанию
+        order_col = db_models.DBUniqueAd.id 
     
     if sort_order == "desc":
         query = query.order_by(desc(order_col))
     else:
         query = query.order_by(order_col)
-    
-    # Оптимизированный подсчет
     total = query.count()
-    
-    # Получаем данные
     db_unique_ads = query.offset(offset).limit(limit).all()
     
     result = PaginatedUniqueAdsResponse(
@@ -253,13 +228,10 @@ async def get_unique_ads(
         limit=limit,
         items=[transform_unique_ad(ad) for ad in db_unique_ads]
     )
-    
-    # Кэшируем результат
-    await set_cache(cache_key, result.json(), ttl=180)  # 3 минуты
-    
+    await set_cache(cache_key, result.json(), ttl=180)
     return result
 
-# ТЗ №5: GET /ads/{id} — подробности по уникальному объявлению и его дублям
+#GET /ads/{id} — подробности по уникальному объявлению и его дублям
 @app.get("/ads/unique/{unique_ad_id}", response_model=DuplicateInfo)
 async def get_unique_ad_details(
     unique_ad_id: int,
@@ -267,13 +239,11 @@ async def get_unique_ad_details(
 ):
     """Получает детали уникального объявления и все его дубликаты"""
     
-    # Проверяем кэш
     cache_key = f"unique_ad_details:{unique_ad_id}"
     cached = await get_from_cache(cache_key)
     if cached:
         return json.loads(cached)
     
-    # Получаем уникальное объявление
     unique_ad = db.query(db_models.DBUniqueAd).options(
         selectinload(db_models.DBUniqueAd.location),
         selectinload(db_models.DBUniqueAd.photos)
@@ -282,19 +252,14 @@ async def get_unique_ad_details(
     if not unique_ad:
         raise HTTPException(status_code=404, detail="Unique ad not found")
     
-    # Получаем все связанные объявления через DuplicateProcessor
     processor = DuplicateProcessor(db)
     all_ads_info = processor.get_all_ads_for_unique(unique_ad_id)
     
-    # Получаем базовое объявление
     base_ad = None
     if all_ads_info['base_ad']:
         base_ad = transform_ad(all_ads_info['base_ad'][0])
-    
-    # Получаем дубликаты
     duplicates = [transform_ad(ad) for ad in all_ads_info['duplicates']]
     
-    # Формируем источники
     sources = []
     if base_ad:
         sources.append(AdSource(
@@ -321,34 +286,27 @@ async def get_unique_ad_details(
         sources=sources
     )
     
-    # Кэшируем результат
-    await set_cache(cache_key, result.json(), ttl=600)  # 10 минут
+    await set_cache(cache_key, result.json(), ttl=600)
     
     return result
 
-# ТЗ №5: GET /ads/{id}/sources — список источников
+#GET /ads/{id}/sources — список источников
 @app.get("/ads/unique/{unique_ad_id}/sources", response_model=List[AdSource])
 async def get_unique_ad_sources(
     unique_ad_id: int,
     db: Session = Depends(get_db)
 ):
     """Получает все источники для уникального объявления"""
-    
-    # Проверяем существование
     unique_ad = db.query(db_models.DBUniqueAd).filter(
         db_models.DBUniqueAd.id == unique_ad_id
     ).first()
     
     if not unique_ad:
         raise HTTPException(status_code=404, detail="Unique ad not found")
-    
-    # Получаем все связанные объявления
     processor = DuplicateProcessor(db)
     all_ads_info = processor.get_all_ads_for_unique(unique_ad_id)
     
     sources = []
-    
-    # Базовое объявление
     if all_ads_info['base_ad']:
         base = all_ads_info['base_ad'][0]
         sources.append(AdSource(
@@ -358,8 +316,6 @@ async def get_unique_ad_sources(
             published_at=base.published_at,
             is_base=True
         ))
-    
-    # Дубликаты
     for dup in all_ads_info['duplicates']:
         sources.append(AdSource(
             id=dup.id,
@@ -378,9 +334,7 @@ async def create_ad(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ):
-    """Создает новое объявление и запускает обработку дубликатов в фоне"""
-    
-    # Проверяем, не существует ли уже объявление с таким source_url
+    """Создает новое объявление"""
     existing_ad = db.query(db_models.DBAd).filter(
         db_models.DBAd.source_url == ad_data.source_url
     ).first()
@@ -392,7 +346,6 @@ async def create_ad(
         )
     
     try:
-        # Создаем или получаем локацию
         db_location = None
         if ad_data.location:
             db_location = db.query(db_models.DBLocation).filter(
@@ -412,7 +365,6 @@ async def create_ad(
                 db.add(db_location)
                 db.flush()
 
-        # Парсим дату публикации
         published_at = None
         if ad_data.published_at:
             try:
@@ -420,7 +372,6 @@ async def create_ad(
             except ValueError:
                 logger.warning(f"Invalid published_at format: {ad_data.published_at}")
 
-        # Создаем объявление
         db_ad = db_models.DBAd(
             source_id=ad_data.source_id,
             source_url=ad_data.source_url,
@@ -455,7 +406,6 @@ async def create_ad(
         db.add(db_ad)
         db.flush()
         
-        # Создаем записи фотографий (без обработки)
         if ad_data.photos:
             for photo in ad_data.photos:
                 db_photo = db_models.DBPhoto(
@@ -466,8 +416,6 @@ async def create_ad(
         
         db.commit()
         db.refresh(db_ad)
-        
-        # Запускаем индексацию в Elasticsearch в фоне
         background_tasks.add_task(index_ad_in_elasticsearch, db_ad.id)
         
         logger.info(f"Ad created successfully: {db_ad.id}")
@@ -496,20 +444,14 @@ async def index_ad_in_elasticsearch(ad_id: int):
 async def process_ad_async(ad_id: int):
     """Асинхронная обработка объявления"""
     try:
-        # Создаем новую сессию для фоновой задачи
         from app.database import SessionLocal
         db = SessionLocal()
         
         try:
-            # Получаем объявление
             db_ad = db.query(db_models.DBAd).filter(db_models.DBAd.id == ad_id).first()
             if not db_ad:
                 return
-            
-            # Обрабатываем фотографии асинхронно
             await photo_service.process_ad_photos(db, db_ad)
-            
-            # Обрабатываем дубликаты
             processor = DuplicateProcessor(db)
             processor.process_ad(db_ad)
             
@@ -531,8 +473,6 @@ async def get_statistics(db: Session = Depends(get_db)):
     cached = await get_from_cache(cache_key)
     if cached:
         return json.loads(cached)
-    
-    # Получаем статистику через DuplicateProcessor
     processor = DuplicateProcessor(db)
     duplicate_stats = processor.get_duplicate_statistics()
     realtor_stats = processor.get_realtor_statistics()
@@ -544,8 +484,6 @@ async def get_statistics(db: Session = Depends(get_db)):
         realtor_ads=realtor_stats['realtor_unique_ads'],
         deduplication_ratio=duplicate_stats['deduplication_ratio']
     )
-    
-    # Кэшируем на 5 минут
     await set_cache(cache_key, result.json(), ttl=300)
     
     return result
@@ -629,10 +567,7 @@ async def search_ads(
         'is_vip': is_vip,
         'source_name': source_name
     }
-    
-    # Убираем None значения
     filters = {k: v for k, v in filters.items() if v is not None}
-    
     try:
         result = es_service.search_ads(q, filters, sort_by, sort_order, page, size)
         return result
@@ -673,18 +608,13 @@ async def reindex_elasticsearch_async():
         db = SessionLocal()
         
         try:
-            # Получаем все уникальные объявления
             unique_ads = db.query(db_models.DBUniqueAd).all()
-            
-            # Преобразуем в формат для Elasticsearch
             ads_data = []
             for unique_ad in unique_ads:
                 ad_dict = transform_unique_ad(unique_ad).dict()
                 ads_data.append(ad_dict)
             
             logger.info(f"Starting reindex of {len(ads_data)} ads")
-            
-            # Переиндексация
             success = es_service.reindex_all(ads_data)
             
             if success:
@@ -750,7 +680,7 @@ if __name__ == "__main__":
         app,
         host=API_HOST,
         port=API_PORT,
-        workers=1,  # В продакшене увеличить
+        workers=1,
         log_level="info"
     )
 

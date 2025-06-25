@@ -67,7 +67,7 @@ nano .env
 ### 3. Запуск через Docker Compose
 ```bash
 # Запуск всех сервисов
-docker-compose up -d
+docker-compose up --build -d
 
 # Проверка статуса
 docker ps
@@ -83,32 +83,23 @@ python create_db_tables.py
 ### Переменные окружения (.env)
 ```env
 # База данных
-DB_HOST=localhost
+DB_HOST=db
 DB_PORT=5432
 DB_NAME=real_estate_db
 DB_USER=real_estate_user
 DB_PASSWORD=your_secure_password
 
 # Redis
-REDIS_URL=redis://localhost:6379
+REDIS_URL=redis://redis:6379
 
 # Elasticsearch
-ELASTICSEARCH_HOSTS=http://localhost:9200
+ELASTICSEARCH_HOSTS=http://elasticsearch:9200
 ELASTICSEARCH_INDEX=real_estate_ads
 
 # API
 API_HOST=0.0.0.0
 API_PORT=8000
 
-# Парсинг
-TARGET_SITE_URL=https://lalafo.kg
-PARSING_INTERVAL=3600
-USE_PROXY=false
-PROXY_URL=
-
-# Дедупликация
-IMAGE_HASH_THRESHOLD=5
-TEXT_SIMILARITY_THRESHOLD=0.8
 ```
 
 ### Конфигурация парсеров
@@ -117,6 +108,14 @@ TEXT_SIMILARITY_THRESHOLD=0.8
 - `lalafo.yml` - Настройки для lalafo.kg
 - `house.yml` - Настройки для house.kg  
 - `stroka.yml` - Настройки для stroka.kg
+
+
+### Добавление нового сайта
+1. Создать конфигурацию в `configs/` (примеры: example_api.yml и example.yml)
+2. Добавить селекторы для полей
+3. Настроить пагинацию и фильтры
+4. Протестировать парсинг
+
 
 ## 🚀 Использование
 
@@ -141,18 +140,6 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
 # Или через Docker
 docker-compose up api
-```
-
-### Управление данными
-```bash
-# Обработка дубликатов
-curl -X POST http://localhost:8000/duplicates/process
-
-# Определение риэлторов
-curl -X POST http://localhost:8000/realtors/detect
-
-# Переиндексация Elasticsearch
-curl -X POST http://localhost:8000/elasticsearch/reindex
 ```
 
 ## 📡 API Endpoints
@@ -269,10 +256,6 @@ POST /elasticsearch/reindex
 2. **NLP-анализ** - Семантическое сравнение текста
 4. **Географическая привязка** - Сравнение адресов
 
-### Настройки порогов
-- `IMAGE_HASH_THRESHOLD=5` - Порог для хэшей фото
-- `TEXT_SIMILARITY_THRESHOLD=0.8` - Порог семантического сходства
-
 
 ### Метрики
 - Количество обработанных объявлений
@@ -285,22 +268,53 @@ POST /elasticsearch/reindex
 ### Структура проекта
 ```
 real_estate_parser/
-├── app/                    # FastAPI приложение
-│   ├── services/          # Бизнес-логика
-│   ├── utils/             # Утилиты
-│   └── main.py           # Основной API
-├── real_estate_scraper/   # Scrapy парсеры
-│   ├── configs/          # Конфигурации сайтов
-│   └── spiders/          # Пауки
-├── docker-compose.yml    # Docker конфигурация
-└── README.md            # Документация
+├── app/                                    # FastAPI приложение
+│   ├── services/                           # Бизнес-логика
+│   │   ├── duplicate_service.py
+│   │   ├── elasticsearch_service.py
+│   │   └── photo_service.py
+│   ├── utils/                              # Утилиты
+│   │   ├── duplicate_processor.py
+│   │   └── transform.py
+│   ├── migrations/                         # Миграции базы данных
+│   │   ├── env.py
+│   │   ├── script.py.mako
+│   │   └── versions/
+│   ├── __init__.py
+│   ├── alembic.ini
+│   ├── database.py
+│   ├── db_models.py
+│   ├── main.py
+│   └── models.py
+├── real_estate_scraper/                    # Scrapy парсеры
+│   ├── real_estate_scraper/
+│   │   ├── configs/                        # Конфигурации сайтов
+│   │   │   ├── example_api.yml
+│   │   │   ├── house.yml
+│   │   │   ├── lalafo.yml
+│   │   │   └── stroka.yml
+│   │   ├── parsers/                        # Парсеры
+│   │   │   └── loader.py
+│   │   ├── spiders/                        # Пауки
+│   │   │   ├── generic_api_spider.py
+│   │   │   ├── generic_spider.py
+│   │   │   └── test.py
+│   │   ├── __init__.py
+│   │   ├── items.py
+│   │   ├── middlewares.py
+│   │   ├── pipelines.py
+│   │   ├── proxy_config.py
+│   │   ├── settings.py
+│   │   └── user_agents.py
+│   └── scrapy.cfg
+├── config.py                 # Конфигурация приложения
+├── docker-compose.yml        # Docker конфигурация
+├── Dockerfile                # Docker образ
+├── env.example               # Пример переменных окружения
+├── pyproject.toml            # Зависимости Python
+├── uv.lock                   # Lock файл зависимостей
+└── README.md                 # Документация
 ```
-
-### Добавление нового сайта
-1. Создать конфигурацию в `configs/`
-2. Добавить селекторы для полей
-3. Настроить пагинацию и фильтры
-4. Протестировать парсинг
 
 ## 📄 Лицензия
 

@@ -36,7 +36,7 @@ class ProxyConfig:
 # Создаем конфигурацию
 proxy_config = ProxyConfig()
 
-# Добавляем прокси из переменных окружения (закомментировано)
+# Добавляем прокси из переменных окружения 
 # BRIGHT_DATA_USERNAME = os.getenv('BRIGHT_DATA_USERNAME')
 # BRIGHT_DATA_PASSWORD = os.getenv('BRIGHT_DATA_PASSWORD')
 # OXYLABS_USERNAME = os.getenv('OXYLABS_USERNAME')
@@ -58,7 +58,7 @@ proxy_config = ProxyConfig()
 #         password=OXYLABS_PASSWORD
 #     )
 
-# Добавляем локальный прокси для тестирования (закомментировано)
+# Добавляем локальный прокси для тестирования 
 # proxy_config.add_proxy(
 #     host='127.0.0.1',
 #     port=8080
