@@ -128,7 +128,7 @@ class DuplicateProcessor:
         address_sim = self._calculate_address_similarity_with_unique(ad, unique_ad)
 
         if not ad_photo_hashes and not unique_photo_hashes:
-            similarity_threshold = 0.95
+            similarity_threshold = 0.98
             address_match = False
             if ad.location_id and unique_ad.location_id and ad.location and unique_ad.location:
                 if (ad.location.city and unique_ad.location.city and ad.location.city == unique_ad.location.city):
@@ -141,31 +141,24 @@ class DuplicateProcessor:
             if not address_match and not area_match and not floor_match:
                 return 0.0, similarity_threshold
             weights = {
-                'photo': 0.0,
+                'photo': 0.2,
                 'text': 1.0,
                 'address': 0.0
             }
         elif not ad_photo_hashes and not unique_photo_hashes:
             weights = {
                 'photo': 0.0,
-                'text': 0.8,
-                'address': 0.2
+                'text': 1.0,
+                'address': 0.4
             }
-            similarity_threshold = 0.9
-        elif not ad.location_id or not unique_ad.location_id:
-            weights = {
-                'photo': 0.5,
-                'text': 0.5,
-                'address': 0.0
-            }
-            similarity_threshold = 0.95
+            similarity_threshold = 0.90
         else:
             weights = {
-                'photo': 0.5,
-                'text': 0.3,
-                'address': 0.2
+                'photo': 0.3,
+                'text': 0.9,
+                'address': 0.0
             }
-            similarity_threshold = 0.95
+            similarity_threshold = 0.85
 
         overall_sim = (
             photo_sim * weights['photo'] +

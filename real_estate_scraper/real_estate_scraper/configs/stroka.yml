@@ -29,5 +29,6 @@ detail:
     hot_water: ".topic-view-best-rows-item-name-hot_water::text"
     gas: ".topic-view-best-rows-item-name-gas::text"
     description: "div.topic-view-body p.bb-p"
+    images: ".topic-best-view-images-image-nav::attr(style)"
     created_at: ".topic-view-topic_date_create_row::text"
 

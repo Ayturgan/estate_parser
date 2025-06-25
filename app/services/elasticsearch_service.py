@@ -364,7 +364,7 @@ class ElasticsearchService:
                 'published_at': ad_data.get('published_at'),
                 'created_at': ad_data.get('created_at'),
                 'phone_numbers': ad_data.get('phone_numbers', []),
-                'photo_urls': [photo['url'] for photo in ad_data.get('photos', []) if photo and 'url' in photo],
+                'photo_urls': [str(photo['url']) for photo in ad_data.get('photos', []) if photo and 'url' in photo],
                 'search_text': ' '.join(search_text_parts)
             }
             if location_data and location_data.get('lat') is not None and location_data.get('lon') is not None:

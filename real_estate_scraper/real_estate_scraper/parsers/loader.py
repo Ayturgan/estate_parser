@@ -1,20 +1,27 @@
 import yaml
 import os
 
-def load_config(config_name_or_path):
-    if not config_name_or_path.endswith(".yml") and "/" not in config_name_or_path:
-        config_name_or_path = f"real_estate_scraper/configs/{config_name_or_path}.yml"
+def load_config(config_name):
+    if not config_name.endswith('.yml'):
+        config_name += '.yml'
 
-    full_path = os.path.abspath(config_name_or_path)
+    full_path = os.path.join('configs', config_name)
+    if os.path.exists(full_path):
+        with open(full_path, 'r', encoding='utf-8') as f:
+            return yaml.safe_load(f)
 
-    if not os.path.exists(full_path):
-        raise FileNotFoundError(f"Config file not found: {full_path}")
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    alt_path = os.path.join(base_dir, '..', 'configs', config_name)
+    alt_path = os.path.abspath(alt_path)
+    if os.path.exists(alt_path):
+        with open(alt_path, 'r', encoding='utf-8') as f:
+            return yaml.safe_load(f)
 
-    with open(full_path, "r", encoding="utf-8") as f:
-        config = yaml.safe_load(f)
-        if config is None:
-            raise ValueError(f"Config file is empty or invalid: {full_path}")
-        return config
+    if os.path.isabs(config_name) and os.path.exists(config_name):
+        with open(config_name, 'r', encoding='utf-8') as f:
+            return yaml.safe_load(f)
+
+    raise FileNotFoundError(f"Config file not found: {full_path} or {alt_path} or {config_name}")
     
     
 def extract_value(response_or_selector, selector, all_text=False, multiple=False):

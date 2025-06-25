@@ -58,7 +58,13 @@ class DataCleaningPipeline:
             cleaned_ceiling_height = self.extract_number(str(ceiling_height_original))
             adapter["ceiling_height"] = cleaned_ceiling_height
             spider.logger.debug(f"Ceiling height cleaned: '{ceiling_height_original}' -> {cleaned_ceiling_height}")
-        
+
+        images_original = adapter.get("images")
+        if images_original is not None:
+            cleaned_images = self.extract_images_universal(images_original)
+            adapter["images"] = cleaned_images
+            spider.logger.debug(f"Images cleaned: found {len(cleaned_images)} images")
+
         return item
     
     def clean_price_and_currency(self, price_str):
@@ -110,6 +116,39 @@ class DataCleaningPipeline:
             
         except (ValueError, TypeError):
             return None, currency
+        
+
+    def extract_images_universal(self, images_data):
+        """
+        Извлекает URL изображений, обрабатывая как прямые URL, так и URL из background-image стилей.
+        """
+        if not images_data:
+            return []
+        
+        image_urls = []
+        
+        # Если images_data - это строка, попробуем извлечь из стиля или считать как прямой URL
+        if isinstance(images_data, str):
+            # Попытка извлечь из стиля
+            urls_from_style = re.findall(r"url\([\\'\"]?([^\\'\"]+)[\\'\"]?\)", images_data)
+            if urls_from_style:
+                image_urls.extend(urls_from_style)
+            else:
+                # Если не стиль, считаем, что это прямой URL
+                image_urls.append(images_data)
+        # Если images_data - это список, итерируемся по элементам
+        elif isinstance(images_data, list):
+            for item in images_data:
+                if item:
+                    # Попытка извлечь из стиля
+                    urls_from_style = re.findall(r"url\([\\'\"]?([^\\'\"]+)[\\'\"]?\)", str(item))
+                    if urls_from_style:
+                        image_urls.extend(urls_from_style)
+                    else:
+                        # Если не стиль, считаем, что это прямой URL
+                        image_urls.append(str(item))
+        
+        return list(filter(None, list(set(image_urls))))
     
     def extract_number(self, text):
         """
@@ -198,6 +237,7 @@ class DatabasePipeline:
     Пайплайн для отправки объявлений через API FastAPI (POST /ads)
     """
     API_URL = "http://api:8000/ads"
+    # API_URL = "http://localhost:8000/ads"
 
     def process_item(self, item, spider):
         adapter = ItemAdapter(item)

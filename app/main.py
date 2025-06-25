@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, status, Depends, Query, BackgroundTasks
+from fastapi import FastAPI, HTTPException, status, Depends, Query, BackgroundTasks, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Dict, Optional, Union
 from datetime import datetime
@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 import redis
 import json
 from cachetools import TTLCache
+import asyncio
 
 from app.models import Ad, AdCreateRequest, PaginatedUniqueAdsResponse, AdSource, DuplicateInfo, StatsResponse
 from app.database import get_db, SessionLocal
@@ -19,6 +20,7 @@ from app.utils.duplicate_processor import DuplicateProcessor
 from app.services.photo_service import PhotoService
 from app.services.duplicate_service import DuplicateService
 from app.services.elasticsearch_service import ElasticsearchService
+from app.services.scrapy_manager import ScrapyManager, SCRAPY_CONFIG_TO_SPIDER
 
 logging.basicConfig(
     level=logging.INFO,
@@ -60,6 +62,10 @@ app.add_middleware(
 photo_service = PhotoService()
 duplicate_service = DuplicateService()
 es_service = ElasticsearchService(hosts=ELASTICSEARCH_HOSTS, index_name=ELASTICSEARCH_INDEX)
+
+scrapy_manager = ScrapyManager(redis_url="redis://redis:6379/0")
+
+scraping_router = APIRouter(prefix="/scraping", tags=["scraping"])
 
 # Вспомогательные функции
 async def get_from_cache(key: str) -> Optional[str]:
@@ -626,53 +632,84 @@ async def reindex_elasticsearch_async():
     except Exception as e:
         logger.error(f"Error during Elasticsearch reindexing: {e}")
 
+photo_processing_status = {
+    'status': 'idle', 
+    'last_started': None,
+    'last_completed': None,
+    'last_error': None
+}
+
 @app.post("/photos/process", status_code=status.HTTP_202_ACCEPTED)
 async def process_photos(background_tasks: BackgroundTasks):
     """Запускает обработку всех необработанных фотографий в фоне"""
+    if photo_processing_status['status'] == 'running':
+        return {"message": "Photo processing already running"}
     background_tasks.add_task(process_photos_async)
     return {"message": "Photo processing started"}
+
+@app.get("/photos/process/status")
+async def get_photos_process_status():
+    """Проверка статуса процесса обработки фото"""
+    return photo_processing_status
 
 async def process_photos_async():
     """Фоновая задача для обработки фотографий"""
     try:
+        photo_processing_status['status'] = 'running'
+        photo_processing_status['last_started'] = datetime.utcnow().isoformat()
         db = SessionLocal()
         try:
             await photo_service.process_all_unprocessed_photos(db)
-            logger.info("Photo processing completed")
+            photo_processing_status['status'] = 'completed'
+            photo_processing_status['last_completed'] = datetime.utcnow().isoformat()
         finally:
             db.close()
     except Exception as e:
+        photo_processing_status['status'] = 'error'
+        photo_processing_status['last_error'] = str(e)
         logger.error(f"Error processing photos: {e}")
 
-@app.post("/photos/process-ad/{ad_id}", status_code=status.HTTP_202_ACCEPTED)
-async def process_ad_photos(
-    ad_id: int,
-    background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db)
-):
-    """Запускает обработку фотографий конкретного объявления"""
-    ad = db.query(db_models.DBAd).filter(db_models.DBAd.id == ad_id).first()
-    if not ad:
-        raise HTTPException(status_code=404, detail="Ad not found")
-    
-    background_tasks.add_task(process_single_ad_photos_async, ad_id)
-    return {"message": f"Photo processing started for ad {ad_id}"}
+@scraping_router.post("/start/{config_name}")
+async def start_scraping(config_name: str, background_tasks: BackgroundTasks):
+    if config_name not in SCRAPY_CONFIG_TO_SPIDER:
+        raise HTTPException(status_code=400, detail="Неизвестный конфиг")
+    job_id = await scrapy_manager.start_job(config_name)
+    return {"message": "Задача запущена", "job_id": job_id}
 
-async def process_single_ad_photos_async(ad_id: int):
-    """Фоновая задача для обработки фотографий одного объявления"""
-    try:
-        db = SessionLocal()
-        try:
-            ad = db.query(db_models.DBAd).filter(db_models.DBAd.id == ad_id).first()
-            if ad:
-                await photo_service.process_ad_photos(db, ad)
-                logger.info(f"Photo processing completed for ad {ad_id}")
-            else:
-                logger.error(f"Ad {ad_id} not found for photo processing")
-        finally:
-            db.close()
-    except Exception as e:
-        logger.error(f"Error processing photos for ad {ad_id}: {e}")
+@scraping_router.get("/status/{job_id}")
+async def get_status(job_id: str):
+    job = await scrapy_manager.get_status(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Задача не найдена")
+    return job
+
+@scraping_router.get("/jobs")
+async def get_jobs():
+    jobs = await scrapy_manager.get_all_jobs()
+    return jobs
+
+@scraping_router.post("/stop/{job_id}")
+async def stop_job(job_id: str):
+    job = await scrapy_manager.get_status(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Задача не найдена")
+    await scrapy_manager.stop_job(job_id)
+    return {"message": "Задача остановлена"}
+
+@scraping_router.post("/start-all")
+async def start_all(background_tasks: BackgroundTasks):
+    job_ids = await scrapy_manager.start_all()
+    return {"message": "Все задачи запущены", "job_ids": job_ids}
+
+@scraping_router.get("/log/{job_id}")
+async def get_log(job_id: str, limit: int = 100):
+    job = await scrapy_manager.get_status(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Задача не найдена")
+    log = await scrapy_manager.get_log(job_id, limit=limit)
+    return {"log": log}
+
+app.include_router(scraping_router)
 
 if __name__ == "__main__":
     import uvicorn

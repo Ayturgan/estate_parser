@@ -17,8 +17,8 @@ class GenericSpider(scrapy.Spider):
         'DOWNLOAD_WARNSIZE': 5242880,
         'RETRY_TIMES': 3,
         'RETRY_HTTP_CODES': [500, 502, 503, 504, 522, 524, 408, 429, 403],
-        'CONCURRENT_REQUESTS': 2,
-        'CONCURRENT_REQUESTS_PER_DOMAIN': 2,
+        'CONCURRENT_REQUESTS': 8,
+        'CONCURRENT_REQUESTS_PER_DOMAIN': 8,
         'DOWNLOAD_DELAY': 2,
         'RANDOMIZE_DOWNLOAD_DELAY': True,
     }
