@@ -65,6 +65,10 @@ es_service = ElasticsearchService(hosts=ELASTICSEARCH_HOSTS, index_name=ELASTICS
 
 scrapy_manager = ScrapyManager(redis_url="redis://redis:6379/0")
 
+# Роутеры
+ads_router = APIRouter(prefix="/ads", tags=["ads"])
+process_router = APIRouter(prefix="/process", tags=["process"])
+elasticsearch_router = APIRouter(prefix="/elasticsearch", tags=["elasticsearch"])
 scraping_router = APIRouter(prefix="/scraping", tags=["scraping"])
 
 # Вспомогательные функции
@@ -142,7 +146,7 @@ def build_unique_ads_query(
     
     return query
 
-# Основные эндпоинты
+# Основные эндпоинты (корневые)
 
 @app.get("/", response_model=Dict[str, str])
 async def read_root():
@@ -174,8 +178,31 @@ async def get_status(db: Session = Depends(get_db)):
             "error": str(e)
         }
 
-#GET /ads/unique — список всех уникальных объявлений
-@app.get("/ads/unique", response_model=PaginatedUniqueAdsResponse)
+@app.get("/stats", response_model=StatsResponse)
+async def get_statistics(db: Session = Depends(get_db)):
+    """Получает общую статистику системы"""
+    
+    cache_key = "system_stats"
+    cached = await get_from_cache(cache_key)
+    if cached:
+        return json.loads(cached)
+    processor = DuplicateProcessor(db)
+    duplicate_stats = processor.get_duplicate_statistics()
+    realtor_stats = processor.get_realtor_statistics()
+    
+    result = StatsResponse(
+        total_unique_ads=duplicate_stats['total_unique_ads'],
+        total_original_ads=duplicate_stats['total_original_ads'],
+        total_duplicates=duplicate_stats['duplicate_ads'],
+        realtor_ads=realtor_stats['realtor_unique_ads'],
+        deduplication_ratio=duplicate_stats['deduplication_ratio']
+    )
+    await set_cache(cache_key, result.json(), ttl=300)
+    
+    return result
+
+# Роутер для работы с объявлениями
+@ads_router.get("/unique", response_model=PaginatedUniqueAdsResponse)
 async def get_unique_ads(
     db: Session = Depends(get_db),
     is_realtor: Optional[bool] = Query(None, description="Фильтр по риэлторам"),
@@ -237,8 +264,7 @@ async def get_unique_ads(
     await set_cache(cache_key, result.json(), ttl=180)
     return result
 
-#GET /ads/{id} — подробности по уникальному объявлению и его дублям
-@app.get("/ads/unique/{unique_ad_id}", response_model=DuplicateInfo)
+@ads_router.get("/unique/{unique_ad_id}", response_model=DuplicateInfo)
 async def get_unique_ad_details(
     unique_ad_id: int,
     db: Session = Depends(get_db)
@@ -296,8 +322,7 @@ async def get_unique_ad_details(
     
     return result
 
-#GET /ads/{id}/sources — список источников
-@app.get("/ads/unique/{unique_ad_id}/sources", response_model=List[AdSource])
+@ads_router.get("/unique/{unique_ad_id}/sources", response_model=List[AdSource])
 async def get_unique_ad_sources(
     unique_ad_id: int,
     db: Session = Depends(get_db)
@@ -333,8 +358,7 @@ async def get_unique_ad_sources(
     
     return sources
 
-# Создание нового объявления (для парсеров)
-@app.post("/ads", response_model=Ad, status_code=status.HTTP_201_CREATED)
+@ads_router.post("/", response_model=Ad, status_code=status.HTTP_201_CREATED)
 async def create_ad(
     ad_data: AdCreateRequest,
     background_tasks: BackgroundTasks,
@@ -432,116 +456,51 @@ async def create_ad(
         logger.error(f"Error creating ad: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-async def index_ad_in_elasticsearch(ad_id: int):
-    """Фоновая задача для индексации объявления в Elasticsearch"""
-    try:
-        db = SessionLocal()
-        db_ad = db.query(db_models.DBAd).filter(db_models.DBAd.id == ad_id).first()
-        
-        if db_ad:
-            ad_data = transform_ad(db_ad).dict()
-            es_service.index_ad(ad_data)
-            logger.info(f"Ad {ad_id} indexed in Elasticsearch")
-        
-        db.close()
-    except Exception as e:
-        logger.error(f"Error indexing ad {ad_id} in Elasticsearch: {e}")
-
-async def process_ad_async(ad_id: int):
-    """Асинхронная обработка объявления"""
-    try:
-        from app.database import SessionLocal
-        db = SessionLocal()
-        
-        try:
-            db_ad = db.query(db_models.DBAd).filter(db_models.DBAd.id == ad_id).first()
-            if not db_ad:
-                return
-            await photo_service.process_ad_photos(db, db_ad)
-            processor = DuplicateProcessor(db)
-            processor.process_ad(db_ad)
-            
-            db.commit()
-            logger.info(f"Successfully processed ad {ad_id}")
-            
-        finally:
-            db.close()
-            
-    except Exception as e:
-        logger.error(f"Error processing ad {ad_id}: {e}")
-
-# Статистика
-@app.get("/stats", response_model=StatsResponse)
-async def get_statistics(db: Session = Depends(get_db)):
-    """Получает общую статистику системы"""
-    
-    cache_key = "system_stats"
-    cached = await get_from_cache(cache_key)
-    if cached:
-        return json.loads(cached)
-    processor = DuplicateProcessor(db)
-    duplicate_stats = processor.get_duplicate_statistics()
-    realtor_stats = processor.get_realtor_statistics()
-    
-    result = StatsResponse(
-        total_unique_ads=duplicate_stats['total_unique_ads'],
-        total_original_ads=duplicate_stats['total_original_ads'],
-        total_duplicates=duplicate_stats['duplicate_ads'],
-        realtor_ads=realtor_stats['realtor_unique_ads'],
-        deduplication_ratio=duplicate_stats['deduplication_ratio']
-    )
-    await set_cache(cache_key, result.json(), ttl=300)
-    
-    return result
-
-# Управление дубликатами
-@app.post("/duplicates/process", status_code=status.HTTP_202_ACCEPTED)
+# Роутер для обработки
+@process_router.post("/duplicates", status_code=status.HTTP_202_ACCEPTED)
 async def process_duplicates(
     background_tasks: BackgroundTasks,
     batch_size: int = Query(100, ge=1, le=1000)
 ):
     """Запускает обработку дубликатов в фоне"""
+    if duplicates_processing_status['status'] == 'running':
+        return {"message": "Duplicate processing already running"}
     background_tasks.add_task(process_duplicates_async, batch_size)
     return {"message": "Duplicate processing started", "batch_size": batch_size}
 
-async def process_duplicates_async(batch_size: int):
-    """Асинхронная обработка дубликатов"""
-    try:
-        from app.database import SessionLocal
-        db = SessionLocal()
-        
-        try:
-            processor = DuplicateProcessor(db)
-            processor.process_new_ads(batch_size)
-            logger.info(f"Processed {batch_size} ads for duplicates")
-        finally:
-            db.close()
-            
-    except Exception as e:
-        logger.error(f"Error processing duplicates: {e}")
-
-@app.post("/realtors/detect", status_code=status.HTTP_202_ACCEPTED)
+@process_router.post("/realtors/detect", status_code=status.HTTP_202_ACCEPTED)
 async def detect_realtors(background_tasks: BackgroundTasks):
     """Запускает обнаружение риэлторов в фоне"""
+    if realtors_detection_status['status'] == 'running':
+        return {"message": "Realtor detection already running"}
     background_tasks.add_task(detect_realtors_async)
     return {"message": "Realtor detection started"}
 
-async def detect_realtors_async():
-    """Фоновая задача для определения риэлторов"""
-    try:
-        db = SessionLocal()
-        duplicate_service = DuplicateService()
-        await duplicate_service.detect_all_realtors(db)
-        db.close()  
-        logger.info("Realtor detection completed")
-    except Exception as e:
-        logger.error(f"Error in realtor detection: {e}")
+@process_router.post("/photos", status_code=status.HTTP_202_ACCEPTED)
+async def process_photos(background_tasks: BackgroundTasks):
+    """Запускает обработку всех необработанных фотографий в фоне"""
+    if photo_processing_status['status'] == 'running':
+        return {"message": "Photo processing already running"}
+    background_tasks.add_task(process_photos_async)
+    return {"message": "Photo processing started"}
 
-# ============================================================================
-# ELASTICSEARCH SEARCH ENDPOINTS
-# ============================================================================
+@process_router.get("/duplicates/status")
+async def get_duplicates_process_status():
+    """Проверка статуса процесса обработки дубликатов"""
+    return duplicates_processing_status
 
-@app.get("/search", response_model=Dict)
+@process_router.get("/realtors/status")
+async def get_realtors_detection_status():
+    """Проверка статуса процесса обнаружения риэлторов"""
+    return realtors_detection_status
+
+@process_router.get("/photos/status")
+async def get_photos_process_status():
+    """Проверка статуса процесса обработки фото"""
+    return photo_processing_status
+
+# Роутер для Elasticsearch
+@elasticsearch_router.get("/search", response_model=Dict)
 async def search_ads(
     q: Optional[str] = Query(None, description="Поисковый запрос"),
     city: Optional[str] = Query(None, description="Город"),
@@ -581,7 +540,7 @@ async def search_ads(
         logger.error(f"Error in search: {e}")
         raise HTTPException(status_code=500, detail=f"Search error: {str(e)}")
 
-@app.get("/elasticsearch/health")
+@elasticsearch_router.get("/health")
 async def elasticsearch_health():
     """Проверка здоровья Elasticsearch"""
     try:
@@ -591,7 +550,7 @@ async def elasticsearch_health():
         logger.error(f"Error checking Elasticsearch health: {e}")
         raise HTTPException(status_code=500, detail=f"Health check error: {str(e)}")
 
-@app.get("/elasticsearch/stats")
+@elasticsearch_router.get("/stats")
 async def elasticsearch_stats():
     """Статистика Elasticsearch индекса"""
     try:
@@ -601,11 +560,115 @@ async def elasticsearch_stats():
         logger.error(f"Error getting Elasticsearch stats: {e}")
         raise HTTPException(status_code=500, detail=f"Stats error: {str(e)}")
 
-@app.post("/elasticsearch/reindex", status_code=status.HTTP_202_ACCEPTED)
+@elasticsearch_router.post("/reindex", status_code=status.HTTP_202_ACCEPTED)
 async def reindex_elasticsearch(background_tasks: BackgroundTasks):
     """Переиндексация всех объявлений в Elasticsearch"""
     background_tasks.add_task(reindex_elasticsearch_async)
     return {"message": "Reindexing started in background"}
+
+# Вспомогательные функции
+async def index_ad_in_elasticsearch(ad_id: int):
+    """Фоновая задача для индексации объявления в Elasticsearch"""
+    try:
+        db = SessionLocal()
+        db_ad = db.query(db_models.DBAd).filter(db_models.DBAd.id == ad_id).first()
+        
+        if db_ad:
+            ad_data = transform_ad(db_ad).dict()
+            es_service.index_ad(ad_data)
+            logger.info(f"Ad {ad_id} indexed in Elasticsearch")
+        
+        db.close()
+    except Exception as e:
+        logger.error(f"Error indexing ad {ad_id} in Elasticsearch: {e}")
+
+async def process_ad_async(ad_id: int):
+    """Асинхронная обработка объявления"""
+    try:
+        from app.database import SessionLocal
+        db = SessionLocal()
+        
+        try:
+            db_ad = db.query(db_models.DBAd).filter(db_models.DBAd.id == ad_id).first()
+            if not db_ad:
+                return
+            await photo_service.process_ad_photos(db, db_ad)
+            processor = DuplicateProcessor(db)
+            processor.process_ad(db_ad)
+            
+            db.commit()
+            logger.info(f"Successfully processed ad {ad_id}")
+            
+        finally:
+            db.close()
+            
+    except Exception as e:
+        logger.error(f"Error processing ad {ad_id}: {e}")
+
+photo_processing_status = {
+    'status': 'idle', 
+    'last_started': None,
+    'last_completed': None,
+    'last_error': None
+}
+
+duplicates_processing_status = {
+    'status': 'idle',
+    'last_started': None,
+    'last_completed': None,
+    'last_error': None,
+    'batch_size': None
+}
+
+realtors_detection_status = {
+    'status': 'idle',
+    'last_started': None,
+    'last_completed': None,
+    'last_error': None
+}
+
+async def process_duplicates_async(batch_size: int):
+    """Асинхронная обработка дубликатов"""
+    try:
+        duplicates_processing_status['status'] = 'running'
+        duplicates_processing_status['last_started'] = datetime.utcnow().isoformat()
+        duplicates_processing_status['batch_size'] = batch_size
+        
+        from app.database import SessionLocal
+        db = SessionLocal()
+        
+        try:
+            processor = DuplicateProcessor(db)
+            processor.process_new_ads(batch_size)
+            logger.info(f"Processed {batch_size} ads for duplicates")
+            duplicates_processing_status['status'] = 'completed'
+            duplicates_processing_status['last_completed'] = datetime.utcnow().isoformat()
+        finally:
+            db.close()
+            
+    except Exception as e:
+        duplicates_processing_status['status'] = 'error'
+        duplicates_processing_status['last_error'] = str(e)
+        logger.error(f"Error processing duplicates: {e}")
+
+async def detect_realtors_async():
+    """Фоновая задача для определения риэлторов"""
+    try:
+        realtors_detection_status['status'] = 'running'
+        realtors_detection_status['last_started'] = datetime.utcnow().isoformat()
+        
+        db = SessionLocal()
+        duplicate_service = DuplicateService()
+        await duplicate_service.detect_all_realtors(db)
+        db.close()
+        
+        realtors_detection_status['status'] = 'completed'
+        realtors_detection_status['last_completed'] = datetime.utcnow().isoformat()
+        logger.info("Realtor detection completed")
+    except Exception as e:
+        realtors_detection_status['status'] = 'error'
+        realtors_detection_status['last_error'] = str(e)
+        logger.error(f"Error in realtor detection: {e}")
 
 async def reindex_elasticsearch_async():
     """Фоновая задача для переиндексации Elasticsearch"""
@@ -632,26 +695,6 @@ async def reindex_elasticsearch_async():
     except Exception as e:
         logger.error(f"Error during Elasticsearch reindexing: {e}")
 
-photo_processing_status = {
-    'status': 'idle', 
-    'last_started': None,
-    'last_completed': None,
-    'last_error': None
-}
-
-@app.post("/photos/process", status_code=status.HTTP_202_ACCEPTED)
-async def process_photos(background_tasks: BackgroundTasks):
-    """Запускает обработку всех необработанных фотографий в фоне"""
-    if photo_processing_status['status'] == 'running':
-        return {"message": "Photo processing already running"}
-    background_tasks.add_task(process_photos_async)
-    return {"message": "Photo processing started"}
-
-@app.get("/photos/process/status")
-async def get_photos_process_status():
-    """Проверка статуса процесса обработки фото"""
-    return photo_processing_status
-
 async def process_photos_async():
     """Фоновая задача для обработки фотографий"""
     try:
@@ -669,6 +712,7 @@ async def process_photos_async():
         photo_processing_status['last_error'] = str(e)
         logger.error(f"Error processing photos: {e}")
 
+# Роутер для скрапинга
 @scraping_router.post("/start/{config_name}")
 async def start_scraping(config_name: str, background_tasks: BackgroundTasks):
     if config_name not in SCRAPY_CONFIG_TO_SPIDER:
@@ -709,6 +753,10 @@ async def get_log(job_id: str, limit: int = 100):
     log = await scrapy_manager.get_log(job_id, limit=limit)
     return {"log": log}
 
+# Подключение роутеров
+app.include_router(ads_router)
+app.include_router(process_router)
+app.include_router(elasticsearch_router)
 app.include_router(scraping_router)
 
 if __name__ == "__main__":
