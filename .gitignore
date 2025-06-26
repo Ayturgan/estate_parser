@@ -4,6 +4,5 @@ build/
 dist/
 wheels/
 *.egg-info
-create_db_tables.py
 .venv
 .env

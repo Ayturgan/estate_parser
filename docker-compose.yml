@@ -5,15 +5,17 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: api
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     volumes:
       - ./:/app
     ports:
       - "8000:8000"
     depends_on:
-      - db
-      - redis
-      - elasticsearch
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      elasticsearch:
+        condition: service_healthy
 
   db:
     image: postgres:16-alpine 
@@ -77,13 +79,15 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: scrapy_container
-    command: python real_estate_scraper/real_estate_scraper/worker.py
+    entrypoint: ["/entrypoint-scrapy.sh"]
     volumes:
       - ./real_estate_scraper/real_estate_scraper:/app/real_estate_scraper/real_estate_scraper
       - ./real_estate_scraper/real_estate_scraper/configs:/app/real_estate_scraper/real_estate_scraper/configs
     depends_on:
-      - db
-      - redis
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
     restart: unless-stopped
 
 volumes:
