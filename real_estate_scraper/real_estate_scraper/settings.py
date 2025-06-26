@@ -1,4 +1,5 @@
 import sys
+import os
 from pathlib import Path
 
 project_root = Path(__file__).resolve().parent.parent.parent
@@ -59,7 +60,13 @@ LOG_DATEFORMAT = '%Y-%m-%d %H:%M:%S'
 FEED_EXPORT_ENCODING = "utf-8"
 
 # Настройки для базы данных
-DATABASE_URL = "postgresql://real_estate_user:admin123@db:5432/real_estate_db"
+DB_HOST = os.getenv("DB_HOST", "db")
+DB_PORT = os.getenv("DB_PORT", "5432")
+DB_NAME = os.getenv("DB_NAME", "estate_db")
+DB_USER = os.getenv("DB_USER", "estate_user")
+DB_PASSWORD = os.getenv("DB_PASSWORD", "admin123")
+
+DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 
 ITEM_PIPELINES = {
     'real_estate_scraper.pipelines.DataCleaningPipeline': 200,  # Сначала очищаем цену

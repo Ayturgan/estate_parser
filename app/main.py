@@ -39,6 +39,19 @@ except:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Управление жизненным циклом приложения"""
+
+        
+    # Автоматическое создание таблиц при первом запуске
+    try:
+        from app.database import engine
+        from app import db_models
+        logger.info("Creating database tables if they don't exist...")
+        db_models.Base.metadata.create_all(bind=engine)
+        logger.info("✅ Database tables created/verified successfully!")
+    except Exception as e:
+        logger.error(f"❌ Error creating database tables: {e}")
+        raise e
+    
     logger.info("Starting Real Estate API...")
     yield
     logger.info("Shutting down Real Estate API...")

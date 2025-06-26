@@ -2,7 +2,8 @@
 set -e
 
 echo "Waiting for database to be ready..."
-while ! pg_isready -h db -p 5432 -U real_estate_user -d real_estate_db; do
+while ! pg_isready -h ${DB_HOST} -p ${DB_PORT} -U ${DB_USER} -d ${DB_NAME}; do
+  echo "Waiting for database..."
   sleep 2
 done
 

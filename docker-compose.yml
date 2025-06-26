@@ -5,10 +5,18 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: api
+    environment:
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - API_HOST=${API_HOST}
+      - API_PORT=${API_PORT}
     volumes:
       - ./:/app
     ports:
-      - "8000:8000"
+      - "${API_PORT}:8000"
     depends_on:
       db:
         condition: service_healthy
@@ -21,15 +29,15 @@ services:
     image: postgres:16-alpine 
     container_name: db
     environment:
-      POSTGRES_DB: real_estate_db
-      POSTGRES_USER: real_estate_user
-      POSTGRES_PASSWORD: admin123
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
     ports:
-      - "5432:5432" 
+      - "${DB_PORT}:5432" 
     volumes:
       - db_data:/var/lib/postgresql/data
     healthcheck: 
-      test: ["CMD-SHELL", "pg_isready -U real_estate_user -d real_estate_db"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -79,6 +87,12 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: scrapy_container
+    environment:
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
     entrypoint: ["/entrypoint-scrapy.sh"]
     volumes:
       - ./real_estate_scraper/real_estate_scraper:/app/real_estate_scraper/real_estate_scraper
