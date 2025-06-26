@@ -71,13 +71,13 @@ class PhotoService:
                             content = await response.read()
                             if not content or len(content) < 100:
                                 raise Exception("Image too small or empty")
-                            img = Image.open(io.BytesIO(content))
-                            if img.mode != 'RGB':
-                                img = img.convert('RGB')
-                            
-                            photo_hash = str(average_hash(img))
+                            loop = asyncio.get_running_loop()
+                            photo_hash = await loop.run_in_executor(
+                                None,
+                                self._compute_hash_sync,
+                                content
+                            )
                             processing_time = time.time() - start_time
-                            
                             logger.info(f"Computed hash for photo {photo.url} in {processing_time:.2f}s: {photo_hash[:10]}...")
                             return photo_hash
                         else:
@@ -86,6 +86,12 @@ class PhotoService:
                 processing_time = time.time() - start_time
                 logger.error(f"Error processing photo {photo.url} after {processing_time:.2f}s: {e}")
                 raise e
+    
+    def _compute_hash_sync(self, content: bytes) -> str:
+        img = Image.open(io.BytesIO(content))
+        if img.mode != 'RGB':
+            img = img.convert('RGB')
+        return str(average_hash(img))
     
     async def process_all_unprocessed_photos(self, db: Session, batch_size: int = 50):
         """Обрабатывает все фотографии без хешей в базе данных"""

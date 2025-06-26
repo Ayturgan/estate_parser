@@ -21,8 +21,9 @@ class DuplicateService:
         if pending_count == 0:
             return {"processed": 0, "pending": 0}
         total_processed = 0
+        loop = asyncio.get_running_loop()
         while True:
-            processor.process_new_ads(self.batch_size)
+            await loop.run_in_executor(None, processor.process_new_ads, self.batch_size)
             remaining = db.query(db_models.DBAd).filter(
                 db_models.DBAd.is_processed == False
             ).count()
@@ -42,9 +43,10 @@ class DuplicateService:
     async def detect_all_realtors(self, db: Session) -> Dict[str, int]:
         """Обнаруживает всех риэлторов"""
         processor = DuplicateProcessor(db)
-        processor.reset_realtor_flags()
-        processor.detect_realtors()
-        stats = processor.get_realtor_statistics()
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, processor.reset_realtor_flags)
+        await loop.run_in_executor(None, processor.detect_realtors)
+        stats = await loop.run_in_executor(None, processor.get_realtor_statistics)
         
         return {
             "realtor_unique_ads": stats["realtor_unique_ads"],

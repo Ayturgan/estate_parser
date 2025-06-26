@@ -778,7 +778,7 @@ if __name__ == "__main__":
         app,
         host=API_HOST,
         port=API_PORT,
-        workers=1,
+        workers=2,
         log_level="info"
     )
 

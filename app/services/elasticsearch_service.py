@@ -5,6 +5,7 @@ from elasticsearch_dsl import Search, Q
 from typing import List, Dict, Optional, Any
 import logging
 from datetime import datetime
+import asyncio
 
 logger = logging.getLogger(__name__)
 russian_analyzer = analyzer(
@@ -990,5 +991,17 @@ class ElasticsearchService:
             'total': response.hits.total.value,
             'hits': [hit.to_dict() for hit in response.hits]
         }
+
+    async def index_ad_async(self, ad_data: Dict) -> bool:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, self.index_ad, ad_data)
+
+    async def reindex_all_async(self, ads_data: List[Dict]) -> bool:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, self.reindex_all, ads_data)
+
+    async def search_ads_async(self, query: str = None, filters: Dict = None, sort_by: str = "relevance", sort_order: str = "desc", page: int = 1, size: int = 10) -> Dict:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, self.search_ads, query, filters, sort_by, sort_order, page, size)
 
 
