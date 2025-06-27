@@ -213,43 +213,43 @@ class AutomationScheduler:
     async def run_photo_processing_step(self) -> bool:
         """Этап 2: Запуск и ожидание завершения обработки фотографий"""
         logger.info("📸 Запуск обработки фотографий...")
-        success = await self.api_request('POST', '/process/photos')
+        success = await self.api_request('POST', '/api/process/photos')
         if not success:
             return False
         
         # Ожидаем завершения обработки фотографий
         logger.info("⏳ Ожидание завершения обработки фотографий...")
-        completed = await self.wait_for_processing_completion('/process/photos/status')
+        completed = await self.wait_for_processing_completion('/api/process/photos/status')
         return completed
 
     async def run_duplicate_processing_step(self) -> bool:
         """Этап 3: Запуск и ожидание завершения обработки дубликатов"""
         logger.info("🔄 Запуск обработки дубликатов...")
-        success = await self.api_request('POST', '/process/duplicates')
+        success = await self.api_request('POST', '/api/process/duplicates')
         if not success:
             return False
         
         # Ожидаем завершения обработки дубликатов
         logger.info("⏳ Ожидание завершения обработки дубликатов...")
-        completed = await self.wait_for_processing_completion('/process/duplicates/status')
+        completed = await self.wait_for_processing_completion('/api/process/duplicates/status')
         return completed
 
     async def run_realtor_detection_step(self) -> bool:
         """Этап 4: Запуск и ожидание завершения определения риэлторов"""
         logger.info("🏢 Запуск определения риэлторов...")
-        success = await self.api_request('POST', '/process/realtors/detect')
+        success = await self.api_request('POST', '/api/process/realtors/detect')
         if not success:
             return False
         
         # Ожидаем завершения определения риэлторов
         logger.info("⏳ Ожидание завершения определения риэлторов...")
-        completed = await self.wait_for_processing_completion('/process/realtors/status')
+        completed = await self.wait_for_processing_completion('/api/process/realtors/status')
         return completed
 
     async def run_elasticsearch_reindex_step(self) -> bool:
         """Этап 5: Запуск переиндексации Elasticsearch"""
         logger.info("🔍 Запуск переиндексации Elasticsearch...")
-        success = await self.api_request('POST', '/elasticsearch/reindex')
+        success = await self.api_request('POST', '/api/elasticsearch/reindex')
         if success:
             logger.info("✅ Переиндексация Elasticsearch запущена (выполняется в фоне)")
             # Переиндексация обычно выполняется в фоне, поэтому не ждём её завершения
@@ -258,7 +258,7 @@ class AutomationScheduler:
 
     async def start_scraping_job(self, source: str) -> Optional[str]:
         """Запуск задачи парсинга и получение job_id"""
-        url = f"{self.api_base_url}/scraping/start/{source}"
+        url = f"{self.api_base_url}/api/scraping/start/{source}"
         
         try:
             async with self.session.post(url) as response:
@@ -333,7 +333,7 @@ class AutomationScheduler:
 
     async def get_scraping_job_status(self, job_id: str) -> Optional[Dict]:
         """Получение статуса задачи парсинга"""
-        url = f"{self.api_base_url}/scraping/status/{job_id}"
+        url = f"{self.api_base_url}/api/scraping/status/{job_id}"
         
         try:
             async with self.session.get(url) as response:
@@ -386,7 +386,7 @@ class AutomationScheduler:
         
         while attempt < max_attempts:
             try:
-                async with self.session.get(f"{self.api_base_url}/status") as response:
+                async with self.session.get(f"{self.api_base_url}/api/status") as response:
                     if response.status == 200:
                         logger.info("✅ FastAPI сервер готов!")
                         return
@@ -401,7 +401,7 @@ class AutomationScheduler:
     async def get_system_status(self) -> Dict:
         """Получение статуса системы"""
         try:
-            async with self.session.get(f"{self.api_base_url}/status") as response:
+            async with self.session.get(f"{self.api_base_url}/api/status") as response:
                 if response.status == 200:
                     return await response.json()
         except Exception as e:

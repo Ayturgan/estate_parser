@@ -170,3 +170,9 @@ class DBAdDuplicate(Base):
 
     def __repr__(self):
         return f"<AdDuplicate(id={self.id}, unique_ad_id={self.unique_ad_id}, original_ad_id={self.original_ad_id})>"
+
+
+
+    
+    def __repr__(self):
+        return f"<Settings(key='{self.key}')>"

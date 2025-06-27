@@ -238,7 +238,7 @@ class DatabasePipeline:
     Пайплайн для отправки объявлений через API FastAPI (POST /ads)
     """
     def __init__(self):
-        self.API_URL = os.getenv("SCRAPY_API_URL", "http://api:8000/ads")
+        self.API_URL = os.getenv("SCRAPY_API_URL", "http://api:8000/api/ads")
 
     def process_item(self, item, spider):
         adapter = ItemAdapter(item)

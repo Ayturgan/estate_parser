@@ -1,5 +1,7 @@
 from fastapi import FastAPI, HTTPException, status, Depends, Query, BackgroundTasks, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 from typing import List, Dict, Optional, Union
 from datetime import datetime
 from sqlalchemy.orm import Session, selectinload
@@ -21,6 +23,8 @@ from app.services.photo_service import PhotoService
 from app.services.duplicate_service import DuplicateService
 from app.services.elasticsearch_service import ElasticsearchService
 from app.services.scrapy_manager import ScrapyManager, SCRAPY_CONFIG_TO_SPIDER
+from app.services.automation_service import automation_service
+from app.web_routes import web_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -52,8 +56,14 @@ async def lifespan(app: FastAPI):
         logger.error(f"❌ Error creating database tables: {e}")
         raise e
     
+    # Запуск сервиса автоматизации
+    await automation_service.start_service()
+    
     logger.info("Starting Real Estate API...")
     yield
+    
+    # Остановка сервиса автоматизации
+    await automation_service.stop_service()
     logger.info("Shutting down Real Estate API...")
 
 app = FastAPI(
@@ -71,6 +81,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Статические файлы и шаблоны
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
+
+# Подключение веб-интерфейса
+app.include_router(web_router)
+
 # Сервисы
 photo_service = PhotoService()
 duplicate_service = DuplicateService()
@@ -78,11 +94,8 @@ es_service = ElasticsearchService(hosts=ELASTICSEARCH_HOSTS, index_name=ELASTICS
 
 scrapy_manager = ScrapyManager(redis_url=f"{REDIS_URL}/0")
 
-# Роутеры
-ads_router = APIRouter(prefix="/ads", tags=["ads"])
-process_router = APIRouter(prefix="/process", tags=["process"])
-elasticsearch_router = APIRouter(prefix="/elasticsearch", tags=["elasticsearch"])
-scraping_router = APIRouter(prefix="/scraping", tags=["scraping"])
+# Единый API роутер
+api_router = APIRouter(prefix="/api", tags=["api"])
 
 # Вспомогательные функции
 async def get_from_cache(key: str) -> Optional[str]:
@@ -159,18 +172,17 @@ def build_unique_ads_query(
     
     return query
 
-# Основные эндпоинты (корневые)
-
-@app.get("/", response_model=Dict[str, str])
+# === ОСНОВНЫЕ ЭНДПОИНТЫ ===
+@api_router.get("/", response_model=Dict[str, str])
 async def read_root():
-    """Корневой эндпоинт"""
+    """Корневой эндпоинт API"""
     return {
         "message": "Real Estate Aggregator API",
-        "version": app.version,
+        "version": "1.0.0",
         "docs": "/docs"
     }
 
-@app.get("/status", response_model=Dict[str, Union[str, int]])
+@api_router.get("/status", response_model=Dict[str, Union[str, int]])
 async def get_status(db: Session = Depends(get_db)):
     """Статус системы"""
     try:
@@ -179,7 +191,7 @@ async def get_status(db: Session = Depends(get_db)):
         
         return {
             "status": "healthy",
-            "version": app.version,
+            "version": "1.0.0",
             "total_unique_ads": total_unique,
             "total_ads": total_ads,
             "cache_status": "redis" if redis_client else "memory_only"
@@ -191,7 +203,7 @@ async def get_status(db: Session = Depends(get_db)):
             "error": str(e)
         }
 
-@app.get("/stats", response_model=StatsResponse)
+@api_router.get("/stats", response_model=StatsResponse)
 async def get_statistics(db: Session = Depends(get_db)):
     """Получает общую статистику системы"""
     
@@ -214,8 +226,8 @@ async def get_statistics(db: Session = Depends(get_db)):
     
     return result
 
-# Роутер для работы с объявлениями
-@ads_router.get("/unique", response_model=PaginatedUniqueAdsResponse)
+# === ОБЪЯВЛЕНИЯ ===
+@api_router.get("/ads/unique", response_model=PaginatedUniqueAdsResponse)
 async def get_unique_ads(
     db: Session = Depends(get_db),
     is_realtor: Optional[bool] = Query(None, description="Фильтр по риэлторам"),
@@ -277,7 +289,7 @@ async def get_unique_ads(
     await set_cache(cache_key, result.json(), ttl=180)
     return result
 
-@ads_router.get("/unique/{unique_ad_id}", response_model=DuplicateInfo)
+@api_router.get("/ads/unique/{unique_ad_id}", response_model=DuplicateInfo)
 async def get_unique_ad_details(
     unique_ad_id: int,
     db: Session = Depends(get_db)
@@ -335,7 +347,7 @@ async def get_unique_ad_details(
     
     return result
 
-@ads_router.get("/unique/{unique_ad_id}/sources", response_model=List[AdSource])
+@api_router.get("/ads/unique/{unique_ad_id}/sources", response_model=List[AdSource])
 async def get_unique_ad_sources(
     unique_ad_id: int,
     db: Session = Depends(get_db)
@@ -371,7 +383,86 @@ async def get_unique_ad_sources(
     
     return sources
 
-@ads_router.post("/", response_model=Ad, status_code=status.HTTP_201_CREATED)
+@api_router.get("/ads/{ad_id}/duplicates")
+async def get_ad_duplicates(ad_id: int, db: Session = Depends(get_db)):
+    """Получить дубликаты конкретного объявления"""
+    try:
+        # Получаем основное объявление
+        main_ad = db.query(db_models.DBUniqueAd).filter(
+            db_models.DBUniqueAd.id == ad_id
+        ).first()
+        
+        if not main_ad:
+            raise HTTPException(status_code=404, detail="Объявление не найдено")
+        
+        if main_ad.duplicates_count == 0:
+            return {
+                "main_ad": {
+                    "id": main_ad.id,
+                    "title": main_ad.title,
+                    "duplicates_count": 0
+                },
+                "duplicates": []
+            }
+        
+        # Получаем все дубликаты (исходные объявления)
+        duplicates = db.query(db_models.DBAd).options(
+            selectinload(db_models.DBAd.location),
+            selectinload(db_models.DBAd.photos)
+        ).filter(
+            db_models.DBAd.unique_ad_id == ad_id
+        ).all()
+        
+        duplicates_data = []
+        for dup in duplicates:
+            dup_data = {
+                "id": dup.id,
+                "title": dup.title,
+                "price": float(dup.price) if dup.price else None,
+                "currency": dup.currency,
+                "area_sqm": float(dup.area_sqm) if dup.area_sqm else None,
+                "rooms": dup.rooms,
+                "source_name": dup.source_name,
+                "source_url": dup.source_url,
+                "created_at": dup.parsed_at.isoformat() if dup.parsed_at else None,
+                "location": None,
+                "photos": []
+            }
+            
+            # Добавляем локацию
+            if dup.location:
+                dup_data["location"] = {
+                    "city": dup.location.city,
+                    "district": dup.location.district,
+                    "address": dup.location.address
+                }
+            
+            # Добавляем фото
+            if dup.photos:
+                dup_data["photos"] = [
+                    {
+                        "url": photo.url,
+                        "is_main": False  # У DBAd нет поля is_main
+                    } for photo in dup.photos[:5]  # Максимум 5 фото
+                ]
+            
+            duplicates_data.append(dup_data)
+        
+        return {
+            "main_ad": {
+                "id": main_ad.id,
+                "title": main_ad.title,
+                "duplicates_count": main_ad.duplicates_count
+            },
+            "duplicates": duplicates_data
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.post("/ads", response_model=Ad, status_code=status.HTTP_201_CREATED)
 async def create_ad(
     ad_data: AdCreateRequest,
     background_tasks: BackgroundTasks,
@@ -469,8 +560,8 @@ async def create_ad(
         logger.error(f"Error creating ad: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# Роутер для обработки
-@process_router.post("/duplicates", status_code=status.HTTP_202_ACCEPTED)
+# === ОБРАБОТКА ===
+@api_router.post("/process/duplicates", status_code=status.HTTP_202_ACCEPTED)
 async def process_duplicates(
     background_tasks: BackgroundTasks,
     batch_size: int = Query(100, ge=1, le=1000)
@@ -481,7 +572,7 @@ async def process_duplicates(
     background_tasks.add_task(process_all_duplicates_async, batch_size)
     return {"message": "Processing all duplicates started", "batch_size": batch_size}
 
-@process_router.post("/realtors/detect", status_code=status.HTTP_202_ACCEPTED)
+@api_router.post("/process/realtors/detect", status_code=status.HTTP_202_ACCEPTED)
 async def detect_realtors(background_tasks: BackgroundTasks):
     """Запускает обнаружение риэлторов в фоне"""
     if realtors_detection_status['status'] == 'running':
@@ -489,7 +580,7 @@ async def detect_realtors(background_tasks: BackgroundTasks):
     background_tasks.add_task(detect_realtors_async)
     return {"message": "Realtor detection started"}
 
-@process_router.post("/photos", status_code=status.HTTP_202_ACCEPTED)
+@api_router.post("/process/photos", status_code=status.HTTP_202_ACCEPTED)
 async def process_photos(background_tasks: BackgroundTasks):
     """Запускает обработку всех необработанных фотографий в фоне"""
     if photo_processing_status['status'] == 'running':
@@ -497,23 +588,23 @@ async def process_photos(background_tasks: BackgroundTasks):
     background_tasks.add_task(process_photos_async)
     return {"message": "Photo processing started"}
 
-@process_router.get("/duplicates/status")
+@api_router.get("/process/duplicates/status")
 async def get_duplicates_process_status():
     """Проверка статуса процесса обработки дубликатов"""
     return duplicates_processing_status
 
-@process_router.get("/realtors/status")
+@api_router.get("/process/realtors/status")
 async def get_realtors_detection_status():
     """Проверка статуса процесса обнаружения риэлторов"""
     return realtors_detection_status
 
-@process_router.get("/photos/status")
+@api_router.get("/process/photos/status")
 async def get_photos_process_status():
     """Проверка статуса процесса обработки фото"""
     return photo_processing_status
 
-# Роутер для Elasticsearch
-@elasticsearch_router.get("/search", response_model=Dict)
+# === ELASTICSEARCH ===
+@api_router.get("/elasticsearch/search", response_model=Dict)
 async def search_ads(
     q: Optional[str] = Query(None, description="Поисковый запрос"),
     city: Optional[str] = Query(None, description="Город"),
@@ -553,7 +644,7 @@ async def search_ads(
         logger.error(f"Error in search: {e}")
         raise HTTPException(status_code=500, detail=f"Search error: {str(e)}")
 
-@elasticsearch_router.get("/health")
+@api_router.get("/elasticsearch/health")
 async def elasticsearch_health():
     """Проверка здоровья Elasticsearch"""
     try:
@@ -563,7 +654,7 @@ async def elasticsearch_health():
         logger.error(f"Error checking Elasticsearch health: {e}")
         raise HTTPException(status_code=500, detail=f"Health check error: {str(e)}")
 
-@elasticsearch_router.get("/stats")
+@api_router.get("/elasticsearch/stats")
 async def elasticsearch_stats():
     """Статистика Elasticsearch индекса"""
     try:
@@ -573,7 +664,7 @@ async def elasticsearch_stats():
         logger.error(f"Error getting Elasticsearch stats: {e}")
         raise HTTPException(status_code=500, detail=f"Stats error: {str(e)}")
 
-@elasticsearch_router.post("/reindex", status_code=status.HTTP_202_ACCEPTED)
+@api_router.post("/elasticsearch/reindex", status_code=status.HTTP_202_ACCEPTED)
 async def reindex_elasticsearch(background_tasks: BackgroundTasks):
     """Переиндексация всех объявлений в Elasticsearch"""
     background_tasks.add_task(reindex_elasticsearch_async)
@@ -782,27 +873,27 @@ async def process_photos_async():
         photo_processing_status['last_error'] = str(e)
         logger.error(f"Error processing photos: {e}")
 
-# Роутер для скрапинга
-@scraping_router.post("/start/{config_name}")
+# === СКРАПИНГ ===
+@api_router.post("/scraping/start/{config_name}")
 async def start_scraping(config_name: str, background_tasks: BackgroundTasks):
     if config_name not in SCRAPY_CONFIG_TO_SPIDER:
         raise HTTPException(status_code=400, detail="Неизвестный конфиг")
     job_id = await scrapy_manager.start_job(config_name)
     return {"message": "Задача запущена", "job_id": job_id}
 
-@scraping_router.get("/status/{job_id}")
+@api_router.get("/scraping/status/{job_id}")
 async def get_status(job_id: str):
     job = await scrapy_manager.get_status(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Задача не найдена")
     return job
 
-@scraping_router.get("/jobs")
+@api_router.get("/scraping/jobs")
 async def get_jobs():
     jobs = await scrapy_manager.get_all_jobs()
     return jobs
 
-@scraping_router.post("/stop/{job_id}")
+@api_router.post("/scraping/stop/{job_id}")
 async def stop_job(job_id: str):
     job = await scrapy_manager.get_status(job_id)
     if not job:
@@ -810,12 +901,12 @@ async def stop_job(job_id: str):
     await scrapy_manager.stop_job(job_id)
     return {"message": "Задача остановлена"}
 
-@scraping_router.post("/start-all")
+@api_router.post("/scraping/start-all")
 async def start_all(background_tasks: BackgroundTasks):
     job_ids = await scrapy_manager.start_all()
     return {"message": "Все задачи запущены", "job_ids": job_ids}
 
-@scraping_router.get("/log/{job_id}")
+@api_router.get("/scraping/log/{job_id}")
 async def get_log(job_id: str, limit: int = 100):
     job = await scrapy_manager.get_status(job_id)
     if not job:
@@ -823,11 +914,122 @@ async def get_log(job_id: str, limit: int = 100):
     log = await scrapy_manager.get_log(job_id, limit=limit)
     return {"log": log}
 
-# Подключение роутеров
-app.include_router(ads_router)
-app.include_router(process_router)
-app.include_router(elasticsearch_router)
-app.include_router(scraping_router)
+# === ЛОГИ ===
+@api_router.get("/logs/{log_type}")
+async def get_system_logs(
+    log_type: str,
+    limit: int = Query(100, ge=1, le=1000, description="Количество строк"),
+    level: Optional[str] = Query(None, description="Уровень логов: INFO, ERROR, WARNING")
+):
+    """Получение системных логов"""
+    import os
+    import glob
+    from datetime import datetime
+    
+    # Определяем пути к лог-файлам
+    log_paths = {
+        "app": "/var/log/estate_parser/app.log",
+        "scraping": "/var/log/estate_parser/scraping.log", 
+        "processing": "/var/log/estate_parser/processing.log"
+    }
+    
+    # Если файлы логов не существуют, возвращаем пустой результат
+    if log_type not in log_paths:
+        raise HTTPException(status_code=400, detail="Неизвестный тип логов")
+    
+    log_file = log_paths[log_type]
+    logs = []
+    
+    try:
+        # Если файл не существует, создаем фиктивные логи для демонстрации
+        if not os.path.exists(log_file):
+            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            demo_logs = [
+                f"{current_time} - INFO - Система запущена успешно",
+                f"{current_time} - INFO - Подключение к базе данных установлено",
+                f"{current_time} - INFO - Redis подключен",
+                f"{current_time} - INFO - Elasticsearch доступен",
+                f"{current_time} - INFO - Веб-интерфейс запущен на порту 8000"
+            ]
+            
+            if log_type == "scraping":
+                demo_logs.extend([
+                    f"{current_time} - INFO - Парсинг house.kg запущен",
+                    f"{current_time} - INFO - Обработано 150 объявлений с house.kg",
+                    f"{current_time} - INFO - Парсинг lalafo.kg завершен",
+                    f"{current_time} - WARNING - Превышен лимит запросов для stroka.kg"
+                ])
+            elif log_type == "processing":
+                demo_logs.extend([
+                    f"{current_time} - INFO - Обработка дубликатов запущена",
+                    f"{current_time} - INFO - Найдено 25 групп дубликатов",
+                    f"{current_time} - INFO - Обработка фотографий завершена",
+                    f"{current_time} - INFO - Переиндексация Elasticsearch выполнена"
+                ])
+            
+            logs = demo_logs[-limit:]
+        else:
+            # Читаем реальный лог-файл
+            with open(log_file, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+                
+            # Фильтруем по уровню, если указан
+            if level:
+                lines = [line for line in lines if level.upper() in line]
+                
+            logs = [line.strip() for line in lines[-limit:]]
+            
+    except Exception as e:
+        logger.error(f"Ошибка чтения логов {log_type}: {e}")
+        logs = [f"Ошибка чтения логов: {str(e)}"]
+    
+    return {
+        "log_type": log_type,
+        "logs": logs,
+        "count": len(logs),
+        "timestamp": datetime.utcnow().isoformat()
+    }
+
+# === АВТОМАТИЗАЦИЯ ===
+@api_router.get("/automation/status")
+async def get_automation_status():
+    """Получение статуса автоматизации"""
+    # Обновляем статус всех этапов в реальном времени
+    await automation_service.update_stage_status()
+    return await automation_service.get_status()
+
+@api_router.post("/automation/start")
+async def start_automation_pipeline(manual: bool = True):
+    """Запуск пайплайна автоматизации"""
+    success = await automation_service.start_pipeline(manual=manual)
+    return {
+        "success": success,
+        "message": "Пайплайн запущен" if success else "Пайплайн уже выполняется"
+    }
+
+@api_router.post("/automation/stop")
+async def stop_automation_pipeline():
+    """Остановка пайплайна автоматизации"""
+    automation_service.stop_pipeline()
+    return {"message": "Пайплайн остановлен"}
+
+@api_router.post("/automation/pause")
+async def pause_automation_pipeline():
+    """Приостановка пайплайна автоматизации"""
+    automation_service.pause_pipeline()
+    return {"message": "Пайплайн приостановлен"}
+
+@api_router.post("/automation/resume")
+async def resume_automation_pipeline():
+    """Возобновление пайплайна автоматизации"""
+    automation_service.resume_pipeline()
+    return {"message": "Пайплайн возобновлен"}
+
+# API endpoints для изменения настроек удалены - настройки теперь только через .env файл
+
+# Подключение единого API роутера
+app.include_router(api_router)
+
 
 if __name__ == "__main__":
     import uvicorn

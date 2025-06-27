@@ -110,46 +110,46 @@ services:
         condition: service_started
     restart: unless-stopped
   
-  scheduler:
-    build:
-      context: .
-      dockerfile: Dockerfile.scheduler
-    environment:
-      # Основные настройки
-      - API_BASE_URL=${API_BASE_URL}
-      
-      # Интервал запуска всего пайплайна (в часах)
-      - PIPELINE_INTERVAL_HOURS=${PIPELINE_INTERVAL_HOURS}
-      
-      # Запуск пайплайна сразу при старте контейнера
-      - RUN_IMMEDIATELY_ON_START=${RUN_IMMEDIATELY_ON_START}
-      
-      # Источники для парсинга (через запятую)
-      - SCRAPING_SOURCES=${SCRAPING_SOURCES}
-      
-      # Включение/выключение этапов пайплайна
-      - ENABLE_SCRAPING=${ENABLE_SCRAPING}               # 1: Парсинг
-      - ENABLE_PHOTO_PROCESSING=${ENABLE_PHOTO_PROCESSING}       # 2: Обработка фото
-      - ENABLE_DUPLICATE_PROCESSING=${ENABLE_DUPLICATE_PROCESSING}   # 3: Обработка дубликатов
-      - ENABLE_REALTOR_DETECTION=${ENABLE_REALTOR_DETECTION}      # 4: Определение риэлторов
-      - ENABLE_ELASTICSEARCH_REINDEX=${ENABLE_ELASTICSEARCH_REINDEX}  # 5: Индексация
-      
-      # Настройки ожидания (опционально)
-      - SCRAPING_CHECK_INTERVAL_SECONDS=${SCRAPING_CHECK_INTERVAL_SECONDS}     # Проверка статуса парсинга каждые 60 сек
-      - PROCESSING_CHECK_INTERVAL_SECONDS=${PROCESSING_CHECK_INTERVAL_SECONDS}   # Проверка статуса обработки каждые 30 сек
-      - MAX_WAIT_TIME_MINUTES=${MAX_WAIT_TIME_MINUTES}              # Максимальное время ожидания 120 минут
-      
-    depends_on:
-      - api
-      - redis
-    restart: unless-stopped
-    
-    # Мониторинг (опционально)
-    healthcheck:
-      test: ["CMD", "python", "-c", "import aiohttp; import asyncio; asyncio.run(aiohttp.ClientSession().get('${API_BASE_URL}/status'))"]
-      interval: 30s
-      timeout: 10s
-      retries: 3 
+  # scheduler:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile.scheduler
+  #   environment:
+  #     # Основные настройки
+  #     - API_BASE_URL=${API_BASE_URL}
+  #     
+  #     # Интервал запуска всего пайплайна (в часах)
+  #     - PIPELINE_INTERVAL_HOURS=${PIPELINE_INTERVAL_HOURS}
+  #     
+  #     # Запуск пайплайна сразу при старте контейнера
+  #     - RUN_IMMEDIATELY_ON_START=${RUN_IMMEDIATELY_ON_START}
+  #     
+  #     # Источники для парсинга (через запятую)
+  #     - SCRAPING_SOURCES=${SCRAPING_SOURCES}
+  #     
+  #     # Включение/выключение этапов пайплайна
+  #     - ENABLE_SCRAPING=${ENABLE_SCRAPING}               # 1: Парсинг
+  #     - ENABLE_PHOTO_PROCESSING=${ENABLE_PHOTO_PROCESSING}       # 2: Обработка фото
+  #     - ENABLE_DUPLICATE_PROCESSING=${ENABLE_DUPLICATE_PROCESSING}   # 3: Обработка дубликатов
+  #     - ENABLE_REALTOR_DETECTION=${ENABLE_REALTOR_DETECTION}      # 4: Определение риэлторов
+  #     - ENABLE_ELASTICSEARCH_REINDEX=${ENABLE_ELASTICSEARCH_REINDEX}  # 5: Индексация
+  #     
+  #     # Настройки ожидания (опционально)
+  #     - SCRAPING_CHECK_INTERVAL_SECONDS=${SCRAPING_CHECK_INTERVAL_SECONDS}     # Проверка статуса парсинга каждые 60 сек
+  #     - PROCESSING_CHECK_INTERVAL_SECONDS=${PROCESSING_CHECK_INTERVAL_SECONDS}   # Проверка статуса обработки каждые 30 сек
+  #     - MAX_WAIT_TIME_MINUTES=${MAX_WAIT_TIME_MINUTES}              # Максимальное время ожидания 120 минут
+  #     
+  #   depends_on:
+  #     - api
+  #     - redis
+  #   restart: unless-stopped
+  #   
+  #   # Мониторинг (опционально)
+  #   healthcheck:
+  #     test: ["CMD", "python", "-c", "import aiohttp; import asyncio; asyncio.run(aiohttp.ClientSession().get('${API_BASE_URL}/status'))"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 3 
 
 volumes:
   db_data:
