@@ -6,6 +6,7 @@ from typing import List, Dict, Optional, Any
 import logging
 from datetime import datetime
 import asyncio
+import os
 
 logger = logging.getLogger(__name__)
 russian_analyzer = analyzer(
@@ -149,7 +150,7 @@ class ElasticsearchService:
     """Сервис для работы с Elasticsearch"""
     
     def __init__(self, hosts: List[str] = None, index_name: str = None):
-        self.hosts = hosts or ['http://localhost:9200']
+        self.hosts = hosts or [os.getenv('ELASTICSEARCH_HOSTS', 'http://localhost:9200')]
         self.index_name = index_name or 'real_estate_ads'
         self.client = Elasticsearch(
             self.hosts,

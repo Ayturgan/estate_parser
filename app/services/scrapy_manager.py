@@ -19,7 +19,7 @@ class ScrapyJobStatus:
     STOPPED = 'остановлено'
 
 class ScrapyManager:
-    def __init__(self, redis_url: str = 'redis://localhost:6379/0'):
+    def __init__(self, redis_url: str = None):
         self.redis = aioredis.from_url(redis_url, decode_responses=True)
         self.jobs_key = 'scrapy_jobs'
         self.log_prefix = 'scrapy_log:'

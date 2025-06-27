@@ -22,32 +22,37 @@
       context: .
       dockerfile: Dockerfile.scheduler
     environment:
-      # Основные настройки
-      - API_BASE_URL=http://app:8000
-      
-      # Интервал запуска всего пайплайна (в часах)
-      - PIPELINE_INTERVAL_HOURS=3         # Запуск всего цикла каждые 3 часа
-      
-      # Запуск пайплайна сразу при старте контейнера
-      - RUN_IMMEDIATELY_ON_START=true
-      
-      # Источники для парсинга
-      - SCRAPING_SOURCES=house,lalafo,stroka
-      
-      # Включение/выключение этапов пайплайна
-      - ENABLE_SCRAPING=true               # Этап 1: Парсинг
-      - ENABLE_PHOTO_PROCESSING=true       # Этап 2: Обработка фото
-      - ENABLE_DUPLICATE_PROCESSING=true   # Этап 3: Обработка дубликатов
-      - ENABLE_REALTOR_DETECTION=true      # Этап 4: Определение риэлторов
-      - ENABLE_ELASTICSEARCH_REINDEX=true  # Этап 5: Индексация
+      # Все настройки берутся из переменных окружения (.env файла)
+      - API_BASE_URL=${API_BASE_URL}
+      - PIPELINE_INTERVAL_HOURS=${PIPELINE_INTERVAL_HOURS}
+      - RUN_IMMEDIATELY_ON_START=${RUN_IMMEDIATELY_ON_START}
+      - SCRAPING_SOURCES=${SCRAPING_SOURCES}
+      - ENABLE_SCRAPING=${ENABLE_SCRAPING}
+      - ENABLE_PHOTO_PROCESSING=${ENABLE_PHOTO_PROCESSING}
+      - ENABLE_DUPLICATE_PROCESSING=${ENABLE_DUPLICATE_PROCESSING}
+      - ENABLE_REALTOR_DETECTION=${ENABLE_REALTOR_DETECTION}
+      - ENABLE_ELASTICSEARCH_REINDEX=${ENABLE_ELASTICSEARCH_REINDEX}
+      - SCRAPING_CHECK_INTERVAL_SECONDS=${SCRAPING_CHECK_INTERVAL_SECONDS}
+      - PROCESSING_CHECK_INTERVAL_SECONDS=${PROCESSING_CHECK_INTERVAL_SECONDS}
+      - MAX_WAIT_TIME_MINUTES=${MAX_WAIT_TIME_MINUTES}
       
     depends_on:
-      - app
+      - api
       - redis
     restart: unless-stopped
 ```
 
-### 2. Запустите сервис
+### 2. Настройте переменные окружения
+
+```bash
+# Создайте .env файл на основе примера
+cp env.example .env
+
+# Отредактируйте настройки под ваши нужды
+nano .env
+```
+
+### 3. Запустите сервис
 
 ```bash
 docker-compose up -d scheduler
@@ -74,30 +79,29 @@ docker-compose up -d scheduler
 
 ### Примеры конфигураций
 
+Все настройки теперь управляются через файл `.env`. Создайте файл `.env` на основе `env.example` и настройте нужные параметры.
+
 #### Только парсинг каждый час
-```yaml
-environment:
-  - PIPELINE_INTERVAL_HOURS=1          # Запуск каждый час
-  - ENABLE_PHOTO_PROCESSING=false      # Отключить обработку фото
-  - ENABLE_DUPLICATE_PROCESSING=false  # Отключить обработку дубликатов
-  - ENABLE_REALTOR_DETECTION=false     # Отключить определение риэлторов
-  - ENABLE_ELASTICSEARCH_REINDEX=false # Отключить индексацию
+```env
+PIPELINE_INTERVAL_HOURS=1
+ENABLE_PHOTO_PROCESSING=false
+ENABLE_DUPLICATE_PROCESSING=false
+ENABLE_REALTOR_DETECTION=false
+ENABLE_ELASTICSEARCH_REINDEX=false
 ```
 
 #### Парсинг только определённых источников
-```yaml
-environment:
-  - SCRAPING_SOURCES=house,lalafo  # Только house.kg и lalafo.kg
-  - PIPELINE_INTERVAL_HOURS=6      # Запуск каждые 6 часов
+```env
+SCRAPING_SOURCES=house,lalafo
+PIPELINE_INTERVAL_HOURS=6
 ```
 
 #### Быстрый цикл с минимальными ожиданиями
-```yaml
-environment:
-  - PIPELINE_INTERVAL_HOURS=2                  # Запуск каждые 2 часа
-  - SCRAPING_CHECK_INTERVAL_SECONDS=30         # Проверка парсинга каждые 30 сек
-  - PROCESSING_CHECK_INTERVAL_SECONDS=15       # Проверка обработки каждые 15 сек
-  - MAX_WAIT_TIME_MINUTES=60                   # Максимальное ожидание 60 минут
+```env
+PIPELINE_INTERVAL_HOURS=2
+SCRAPING_CHECK_INTERVAL_SECONDS=30
+PROCESSING_CHECK_INTERVAL_SECONDS=15
+MAX_WAIT_TIME_MINUTES=60
 ```
 
 ## 📊 Мониторинг

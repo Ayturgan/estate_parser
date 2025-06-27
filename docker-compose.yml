@@ -13,6 +13,9 @@ services:
       - DB_PASSWORD=${DB_PASSWORD}
       - API_HOST=${API_HOST}
       - API_PORT=${API_PORT}
+      - REDIS_URL=${REDIS_URL}
+      - ELASTICSEARCH_HOSTS=${ELASTICSEARCH_HOSTS}
+      - ELASTICSEARCH_INDEX=${ELASTICSEARCH_INDEX}
     volumes:
       - ./:/app
     ports:
@@ -45,10 +48,10 @@ services:
       image: dpage/pgadmin4
       container_name: pgadmin
       environment:
-        PGADMIN_DEFAULT_EMAIL: admin@admin.com
-        PGADMIN_DEFAULT_PASSWORD: admin123
+        PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
+        PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD}
       ports:
-        - "5050:80"
+        - "${PGADMIN_PORT}:80"
       depends_on:
         - db
       volumes:
@@ -58,7 +61,7 @@ services:
     image: redis:7.2
     container_name: redis
     ports:
-      - "6379:6379"
+      - "${REDIS_EXTERNAL_PORT}:6379"
     restart: always
 
   elasticsearch:
@@ -67,12 +70,12 @@ services:
     environment:
       - discovery.type=single-node
       - xpack.security.enabled=false
-      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
-      - cluster.name=real-estate-cluster
-      - node.name=real-estate-node
+      - "ES_JAVA_OPTS=${ES_JAVA_OPTS}"
+      - cluster.name=${ES_CLUSTER_NAME}
+      - node.name=${ES_NODE_NAME}
     ports:
-      - "9200:9200"
-      - "9300:9300"
+      - "${ELASTICSEARCH_EXTERNAL_PORT}:9200"
+      - "${ELASTICSEARCH_TRANSPORT_PORT}:9300"
     volumes:
       - elasticsearch_data:/usr/share/elasticsearch/data
     healthcheck:
@@ -93,6 +96,9 @@ services:
       - DB_NAME=${DB_NAME}
       - DB_USER=${DB_USER}
       - DB_PASSWORD=${DB_PASSWORD}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+      - SCRAPY_API_URL=${SCRAPY_API_URL}
     entrypoint: ["/entrypoint-scrapy.sh"]
     volumes:
       - ./real_estate_scraper/real_estate_scraper:/app/real_estate_scraper/real_estate_scraper
@@ -110,28 +116,28 @@ services:
       dockerfile: Dockerfile.scheduler
     environment:
       # Основные настройки
-      - API_BASE_URL=http://api:8000
+      - API_BASE_URL=${API_BASE_URL}
       
       # Интервал запуска всего пайплайна (в часах)
-      - PIPELINE_INTERVAL_HOURS=3
+      - PIPELINE_INTERVAL_HOURS=${PIPELINE_INTERVAL_HOURS}
       
       # Запуск пайплайна сразу при старте контейнера
-      - RUN_IMMEDIATELY_ON_START=true
+      - RUN_IMMEDIATELY_ON_START=${RUN_IMMEDIATELY_ON_START}
       
       # Источники для парсинга (через запятую)
-      - SCRAPING_SOURCES=house,lalafo,stroka
+      - SCRAPING_SOURCES=${SCRAPING_SOURCES}
       
       # Включение/выключение этапов пайплайна
-      - ENABLE_SCRAPING=true               # 1: Парсинг
-      - ENABLE_PHOTO_PROCESSING=true       # 2: Обработка фото
-      - ENABLE_DUPLICATE_PROCESSING=true   # 3: Обработка дубликатов
-      - ENABLE_REALTOR_DETECTION=true      # 4: Определение риэлторов
-      - ENABLE_ELASTICSEARCH_REINDEX=true  # 5: Индексация
+      - ENABLE_SCRAPING=${ENABLE_SCRAPING}               # 1: Парсинг
+      - ENABLE_PHOTO_PROCESSING=${ENABLE_PHOTO_PROCESSING}       # 2: Обработка фото
+      - ENABLE_DUPLICATE_PROCESSING=${ENABLE_DUPLICATE_PROCESSING}   # 3: Обработка дубликатов
+      - ENABLE_REALTOR_DETECTION=${ENABLE_REALTOR_DETECTION}      # 4: Определение риэлторов
+      - ENABLE_ELASTICSEARCH_REINDEX=${ENABLE_ELASTICSEARCH_REINDEX}  # 5: Индексация
       
       # Настройки ожидания (опционально)
-      - SCRAPING_CHECK_INTERVAL_SECONDS=60     # Проверка статуса парсинга каждые 60 сек
-      - PROCESSING_CHECK_INTERVAL_SECONDS=30   # Проверка статуса обработки каждые 30 сек
-      - MAX_WAIT_TIME_MINUTES=120              # Максимальное время ожидания 120 минут
+      - SCRAPING_CHECK_INTERVAL_SECONDS=${SCRAPING_CHECK_INTERVAL_SECONDS}     # Проверка статуса парсинга каждые 60 сек
+      - PROCESSING_CHECK_INTERVAL_SECONDS=${PROCESSING_CHECK_INTERVAL_SECONDS}   # Проверка статуса обработки каждые 30 сек
+      - MAX_WAIT_TIME_MINUTES=${MAX_WAIT_TIME_MINUTES}              # Максимальное время ожидания 120 минут
       
     depends_on:
       - api
@@ -140,7 +146,7 @@ services:
     
     # Мониторинг (опционально)
     healthcheck:
-      test: ["CMD", "python", "-c", "import aiohttp; import asyncio; asyncio.run(aiohttp.ClientSession().get('http://api:8000/status'))"]
+      test: ["CMD", "python", "-c", "import aiohttp; import asyncio; asyncio.run(aiohttp.ClientSession().get('${API_BASE_URL}/status'))"]
       interval: 30s
       timeout: 10s
       retries: 3 

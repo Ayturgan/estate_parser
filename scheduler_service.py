@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 class AutomationScheduler:
     def __init__(self):
         # Настройки из переменных окружения
-        self.api_base_url = os.getenv('API_BASE_URL', 'http://app:8000')
+        self.api_base_url = os.getenv('API_BASE_URL', 'http://api:8000')
         self.pipeline_interval = int(os.getenv('PIPELINE_INTERVAL_HOURS', '3')) * 3600  # в секундах
         
         # Какие источники парсить (можно настроить через переменную окружения)

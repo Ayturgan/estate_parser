@@ -76,7 +76,7 @@ photo_service = PhotoService()
 duplicate_service = DuplicateService()
 es_service = ElasticsearchService(hosts=ELASTICSEARCH_HOSTS, index_name=ELASTICSEARCH_INDEX)
 
-scrapy_manager = ScrapyManager(redis_url="redis://redis:6379/0")
+scrapy_manager = ScrapyManager(redis_url=f"{REDIS_URL}/0")
 
 # Роутеры
 ads_router = APIRouter(prefix="/ads", tags=["ads"])

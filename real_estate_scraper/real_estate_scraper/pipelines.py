@@ -1,4 +1,5 @@
 import re
+import os
 from datetime import datetime
 from itemadapter import ItemAdapter
 import requests
@@ -236,8 +237,8 @@ class DatabasePipeline:
     """
     Пайплайн для отправки объявлений через API FastAPI (POST /ads)
     """
-    API_URL = "http://api:8000/ads"
-    # API_URL = "http://localhost:8000/ads"
+    def __init__(self):
+        self.API_URL = os.getenv("SCRAPY_API_URL", "http://api:8000/ads")
 
     def process_item(self, item, spider):
         adapter = ItemAdapter(item)
