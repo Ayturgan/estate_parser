@@ -103,6 +103,47 @@ services:
       redis:
         condition: service_started
     restart: unless-stopped
+  
+  scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile.scheduler
+    environment:
+      # Основные настройки
+      - API_BASE_URL=http://api:8000
+      
+      # Интервал запуска всего пайплайна (в часах)
+      - PIPELINE_INTERVAL_HOURS=3
+      
+      # Запуск пайплайна сразу при старте контейнера
+      - RUN_IMMEDIATELY_ON_START=true
+      
+      # Источники для парсинга (через запятую)
+      - SCRAPING_SOURCES=house,lalafo,stroka
+      
+      # Включение/выключение этапов пайплайна
+      - ENABLE_SCRAPING=true               # 1: Парсинг
+      - ENABLE_PHOTO_PROCESSING=true       # 2: Обработка фото
+      - ENABLE_DUPLICATE_PROCESSING=true   # 3: Обработка дубликатов
+      - ENABLE_REALTOR_DETECTION=true      # 4: Определение риэлторов
+      - ENABLE_ELASTICSEARCH_REINDEX=true  # 5: Индексация
+      
+      # Настройки ожидания (опционально)
+      - SCRAPING_CHECK_INTERVAL_SECONDS=60     # Проверка статуса парсинга каждые 60 сек
+      - PROCESSING_CHECK_INTERVAL_SECONDS=30   # Проверка статуса обработки каждые 30 сек
+      - MAX_WAIT_TIME_MINUTES=120              # Максимальное время ожидания 120 минут
+      
+    depends_on:
+      - api
+      - redis
+    restart: unless-stopped
+    
+    # Мониторинг (опционально)
+    healthcheck:
+      test: ["CMD", "python", "-c", "import aiohttp; import asyncio; asyncio.run(aiohttp.ClientSession().get('http://api:8000/status'))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3 
 
 volumes:
   db_data:

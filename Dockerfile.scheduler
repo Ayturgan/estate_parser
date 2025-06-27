@@ -1,0 +1,14 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Устанавливаем зависимости
+RUN pip install aiohttp
+
+# Копируем сервис автоматизации
+COPY scheduler_service.py /app/scheduler_service.py
+
+# Делаем исполняемым
+RUN chmod +x /app/scheduler_service.py
+
+CMD ["python", "/app/scheduler_service.py"] 

@@ -1,5 +1,5 @@
 [project]
-name = "real-estate-parser"
+name = "estate-parser"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
@@ -27,3 +27,7 @@ dependencies = [
     "sqlalchemy-json>=0.7.0",
     "uvicorn>=0.34.3",
 ]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*", "real_estate_scraper*"]

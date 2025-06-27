@@ -475,11 +475,11 @@ async def process_duplicates(
     background_tasks: BackgroundTasks,
     batch_size: int = Query(100, ge=1, le=1000)
 ):
-    """Запускает обработку дубликатов в фоне"""
+    """Запускает обработку всех дубликатов в фоне"""
     if duplicates_processing_status['status'] == 'running':
         return {"message": "Duplicate processing already running"}
-    background_tasks.add_task(process_duplicates_async, batch_size)
-    return {"message": "Duplicate processing started", "batch_size": batch_size}
+    background_tasks.add_task(process_all_duplicates_async, batch_size)
+    return {"message": "Processing all duplicates started", "batch_size": batch_size}
 
 @process_router.post("/realtors/detect", status_code=status.HTTP_202_ACCEPTED)
 async def detect_realtors(background_tasks: BackgroundTasks):
@@ -630,7 +630,9 @@ duplicates_processing_status = {
     'last_started': None,
     'last_completed': None,
     'last_error': None,
-    'batch_size': None
+    'batch_size': None,
+    'total_processed': 0,
+    'remaining': 0
 }
 
 realtors_detection_status = {
@@ -640,8 +642,8 @@ realtors_detection_status = {
     'last_error': None
 }
 
-async def process_duplicates_async(batch_size: int):
-    """Асинхронная обработка дубликатов"""
+async def process_all_duplicates_async(batch_size: int):
+    """Асинхронная обработка всех дубликатов"""
     try:
         duplicates_processing_status['status'] = 'running'
         duplicates_processing_status['last_started'] = datetime.utcnow().isoformat()
@@ -652,17 +654,72 @@ async def process_duplicates_async(batch_size: int):
         
         try:
             processor = DuplicateProcessor(db)
-            processor.process_new_ads(batch_size)
-            logger.info(f"Processed {batch_size} ads for duplicates")
+            
+            # Получаем общее количество необработанных объявлений
+            total_unprocessed = db.query(db_models.DBAd).filter(
+                and_(
+                    db_models.DBAd.is_processed == False,
+                    db_models.DBAd.is_duplicate == False
+                )
+            ).count()
+            
+            if total_unprocessed == 0:
+                logger.info("No unprocessed ads found for duplicate detection")
+                duplicates_processing_status['status'] = 'completed'
+                duplicates_processing_status['last_completed'] = datetime.utcnow().isoformat()
+                return
+            
+            logger.info(f"Starting duplicate processing for {total_unprocessed} unprocessed ads...")
+            total_processed = 0
+            duplicates_processing_status['total_processed'] = 0
+            duplicates_processing_status['remaining'] = total_unprocessed
+            
+            # Обрабатываем батчами до тех пор, пока не закончатся все объявления
+            while True:
+                # Получаем текущее количество необработанных объявлений
+                remaining = db.query(db_models.DBAd).filter(
+                    and_(
+                        db_models.DBAd.is_processed == False,
+                        db_models.DBAd.is_duplicate == False
+                    )
+                ).count()
+                
+                if remaining == 0:
+                    logger.info(f"✅ All duplicates processed! Total processed: {total_processed}")
+                    break
+                
+                # Обрабатываем один батч
+                batch_processed = processor.process_new_ads_batch(batch_size)
+                total_processed += batch_processed
+                
+                # Обновляем статус
+                duplicates_processing_status['total_processed'] = total_processed
+                duplicates_processing_status['remaining'] = remaining - batch_processed
+                
+                logger.info(f"📊 Processed batch of {batch_processed} ads. Total: {total_processed}, Remaining: {remaining - batch_processed}")
+                
+                # Коммитим изменения после каждого батча
+                db.commit()
+                
+                # Небольшая пауза между батчами
+                await asyncio.sleep(0.1)
+            
+            # Запускаем определение риэлторов в конце
+            logger.info("🏢 Running realtor detection after duplicate processing...")
+            processor.detect_realtors()
+            db.commit()
+            
+            logger.info(f"🎉 Duplicate processing completed! Total processed: {total_processed} ads")
             duplicates_processing_status['status'] = 'completed'
             duplicates_processing_status['last_completed'] = datetime.utcnow().isoformat()
+            
         finally:
             db.close()
             
     except Exception as e:
         duplicates_processing_status['status'] = 'error'
         duplicates_processing_status['last_error'] = str(e)
-        logger.error(f"Error processing duplicates: {e}")
+        logger.error(f"❌ Error processing duplicates: {e}")
 
 async def detect_realtors_async():
     """Фоновая задача для определения риэлторов"""

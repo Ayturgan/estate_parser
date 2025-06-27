@@ -28,7 +28,7 @@ class DuplicateProcessor:
         self.realtor_threshold = realtor_threshold
         
     def process_new_ads(self, batch_size: int = 100):
-        """Обрабатывает новые объявления на предмет дубликатов"""
+        """Обрабатывает новые объявления на предмет дубликатов (старый метод)"""
         unprocessed_ads = self.db.query(DBAd).filter(
             and_(
                 DBAd.is_processed == False,
@@ -42,6 +42,32 @@ class DuplicateProcessor:
         self.detect_realtors()
             
         self.db.commit()
+    
+    def process_new_ads_batch(self, batch_size: int = 100) -> int:
+        """Обрабатывает один батч новых объявлений и возвращает количество обработанных"""
+        unprocessed_ads = self.db.query(DBAd).filter(
+            and_(
+                DBAd.is_processed == False,
+                DBAd.is_duplicate == False
+            )
+        ).limit(batch_size).all()
+        
+        processed_count = 0
+        for ad in unprocessed_ads:
+            try:
+                self.process_ad(ad)
+                processed_count += 1
+            except Exception as e:
+                logger.error(f"Error processing ad {ad.id}: {e}")
+                # Помечаем объявление как обработанное даже при ошибке, чтобы не зацикливаться
+                ad.is_processed = True
+                ad.processed_at = datetime.utcnow()
+                processed_count += 1
+        
+        # Определение риэлторов запускаем только в конце всего процесса
+        # self.detect_realtors()  # Убираем отсюда, будет вызываться отдельно
+        
+        return processed_count
     
     def process_ad(self, ad: DBAd):
         """Обрабатывает одно объявление"""
