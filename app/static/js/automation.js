@@ -165,7 +165,12 @@ class AutomationManager {
         
         if (intervalElement) {
             intervalElement.className = 'badge bg-primary';
-            intervalElement.innerHTML = `<i class="bi bi-clock"></i> ${status.interval_hours} час.`;
+            // Отображаем минуты если интервал меньше часа, иначе часы
+            if (status.interval_minutes && status.interval_minutes < 60) {
+                intervalElement.innerHTML = `<i class="bi bi-clock"></i> ${status.interval_minutes} мин.`;
+            } else {
+                intervalElement.innerHTML = `<i class="bi bi-clock"></i> ${status.interval_hours} час.`;
+            }
         }
         
         if (sourcesElement) {
@@ -214,8 +219,8 @@ class AutomationManager {
         }
         
         if (nextRun) {
-            nextRun.textContent = status.next_run 
-                ? this.formatDateTime(status.next_run) 
+            nextRun.textContent = status.next_run_scheduled 
+                ? this.formatDateTime(status.next_run_scheduled) 
                 : '—';
         }
     }

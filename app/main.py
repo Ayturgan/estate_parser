@@ -1,7 +1,6 @@
 from fastapi import FastAPI, HTTPException, status, Depends, Query, BackgroundTasks, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 from typing import List, Dict, Optional, Union
 from datetime import datetime
 from sqlalchemy.orm import Session, selectinload
@@ -387,7 +386,6 @@ async def get_unique_ad_sources(
 async def get_ad_duplicates(ad_id: int, db: Session = Depends(get_db)):
     """Получить дубликаты конкретного объявления"""
     try:
-        # Получаем основное объявление
         main_ad = db.query(db_models.DBUniqueAd).filter(
             db_models.DBUniqueAd.id == ad_id
         ).first()
@@ -405,7 +403,6 @@ async def get_ad_duplicates(ad_id: int, db: Session = Depends(get_db)):
                 "duplicates": []
             }
         
-        # Получаем все дубликаты (исходные объявления)
         duplicates = db.query(db_models.DBAd).options(
             selectinload(db_models.DBAd.location),
             selectinload(db_models.DBAd.photos)
@@ -429,7 +426,6 @@ async def get_ad_duplicates(ad_id: int, db: Session = Depends(get_db)):
                 "photos": []
             }
             
-            # Добавляем локацию
             if dup.location:
                 dup_data["location"] = {
                     "city": dup.location.city,
@@ -437,13 +433,12 @@ async def get_ad_duplicates(ad_id: int, db: Session = Depends(get_db)):
                     "address": dup.location.address
                 }
             
-            # Добавляем фото
             if dup.photos:
                 dup_data["photos"] = [
                     {
                         "url": photo.url,
-                        "is_main": False  # У DBAd нет поля is_main
-                    } for photo in dup.photos[:5]  # Максимум 5 фото
+                        "is_main": False 
+                    } for photo in dup.photos[:5] 
                 ]
             
             duplicates_data.append(dup_data)
@@ -674,11 +669,13 @@ async def reindex_elasticsearch(background_tasks: BackgroundTasks):
 async def index_ad_in_elasticsearch(ad_id: int):
     """Фоновая задача для индексации объявления в Elasticsearch"""
     try:
+        from app.utils.transform import to_elasticsearch_dict
+        
         db = SessionLocal()
         db_ad = db.query(db_models.DBAd).filter(db_models.DBAd.id == ad_id).first()
         
         if db_ad:
-            ad_data = transform_ad(db_ad).dict()
+            ad_data = to_elasticsearch_dict(transform_ad(db_ad))
             es_service.index_ad(ad_data)
             logger.info(f"Ad {ad_id} indexed in Elasticsearch")
         
@@ -746,7 +743,6 @@ async def process_all_duplicates_async(batch_size: int):
         try:
             processor = DuplicateProcessor(db)
             
-            # Получаем общее количество необработанных объявлений
             total_unprocessed = db.query(db_models.DBAd).filter(
                 and_(
                     db_models.DBAd.is_processed == False,
@@ -765,9 +761,7 @@ async def process_all_duplicates_async(batch_size: int):
             duplicates_processing_status['total_processed'] = 0
             duplicates_processing_status['remaining'] = total_unprocessed
             
-            # Обрабатываем батчами до тех пор, пока не закончатся все объявления
             while True:
-                # Получаем текущее количество необработанных объявлений
                 remaining = db.query(db_models.DBAd).filter(
                     and_(
                         db_models.DBAd.is_processed == False,
@@ -779,23 +773,18 @@ async def process_all_duplicates_async(batch_size: int):
                     logger.info(f"✅ All duplicates processed! Total processed: {total_processed}")
                     break
                 
-                # Обрабатываем один батч
                 batch_processed = processor.process_new_ads_batch(batch_size)
                 total_processed += batch_processed
                 
-                # Обновляем статус
                 duplicates_processing_status['total_processed'] = total_processed
                 duplicates_processing_status['remaining'] = remaining - batch_processed
                 
                 logger.info(f"📊 Processed batch of {batch_processed} ads. Total: {total_processed}, Remaining: {remaining - batch_processed}")
                 
-                # Коммитим изменения после каждого батча
                 db.commit()
                 
-                # Небольшая пауза между батчами
                 await asyncio.sleep(0.1)
             
-            # Запускаем определение риэлторов в конце
             logger.info("🏢 Running realtor detection after duplicate processing...")
             processor.detect_realtors()
             db.commit()
@@ -835,13 +824,15 @@ async def reindex_elasticsearch_async():
     """Фоновая задача для переиндексации Elasticsearch"""
     try:
         from app.database import SessionLocal
+        from app.utils.transform import to_elasticsearch_dict
+        
         db = SessionLocal()
         
         try:
             unique_ads = db.query(db_models.DBUniqueAd).all()
             ads_data = []
             for unique_ad in unique_ads:
-                ad_dict = transform_unique_ad(unique_ad).dict()
+                ad_dict = to_elasticsearch_dict(transform_unique_ad(unique_ad))
                 ads_data.append(ad_dict)
             
             logger.info(f"Starting reindex of {len(ads_data)} ads")
@@ -914,81 +905,7 @@ async def get_log(job_id: str, limit: int = 100):
     log = await scrapy_manager.get_log(job_id, limit=limit)
     return {"log": log}
 
-# === ЛОГИ ===
-@api_router.get("/logs/{log_type}")
-async def get_system_logs(
-    log_type: str,
-    limit: int = Query(100, ge=1, le=1000, description="Количество строк"),
-    level: Optional[str] = Query(None, description="Уровень логов: INFO, ERROR, WARNING")
-):
-    """Получение системных логов"""
-    import os
-    import glob
-    from datetime import datetime
-    
-    # Определяем пути к лог-файлам
-    log_paths = {
-        "app": "/var/log/estate_parser/app.log",
-        "scraping": "/var/log/estate_parser/scraping.log", 
-        "processing": "/var/log/estate_parser/processing.log"
-    }
-    
-    # Если файлы логов не существуют, возвращаем пустой результат
-    if log_type not in log_paths:
-        raise HTTPException(status_code=400, detail="Неизвестный тип логов")
-    
-    log_file = log_paths[log_type]
-    logs = []
-    
-    try:
-        # Если файл не существует, создаем фиктивные логи для демонстрации
-        if not os.path.exists(log_file):
-            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            demo_logs = [
-                f"{current_time} - INFO - Система запущена успешно",
-                f"{current_time} - INFO - Подключение к базе данных установлено",
-                f"{current_time} - INFO - Redis подключен",
-                f"{current_time} - INFO - Elasticsearch доступен",
-                f"{current_time} - INFO - Веб-интерфейс запущен на порту 8000"
-            ]
-            
-            if log_type == "scraping":
-                demo_logs.extend([
-                    f"{current_time} - INFO - Парсинг house.kg запущен",
-                    f"{current_time} - INFO - Обработано 150 объявлений с house.kg",
-                    f"{current_time} - INFO - Парсинг lalafo.kg завершен",
-                    f"{current_time} - WARNING - Превышен лимит запросов для stroka.kg"
-                ])
-            elif log_type == "processing":
-                demo_logs.extend([
-                    f"{current_time} - INFO - Обработка дубликатов запущена",
-                    f"{current_time} - INFO - Найдено 25 групп дубликатов",
-                    f"{current_time} - INFO - Обработка фотографий завершена",
-                    f"{current_time} - INFO - Переиндексация Elasticsearch выполнена"
-                ])
-            
-            logs = demo_logs[-limit:]
-        else:
-            # Читаем реальный лог-файл
-            with open(log_file, 'r', encoding='utf-8') as f:
-                lines = f.readlines()
-                
-            # Фильтруем по уровню, если указан
-            if level:
-                lines = [line for line in lines if level.upper() in line]
-                
-            logs = [line.strip() for line in lines[-limit:]]
-            
-    except Exception as e:
-        logger.error(f"Ошибка чтения логов {log_type}: {e}")
-        logs = [f"Ошибка чтения логов: {str(e)}"]
-    
-    return {
-        "log_type": log_type,
-        "logs": logs,
-        "count": len(logs),
-        "timestamp": datetime.utcnow().isoformat()
-    }
+
 
 # === АВТОМАТИЗАЦИЯ ===
 @api_router.get("/automation/status")
@@ -996,7 +913,7 @@ async def get_automation_status():
     """Получение статуса автоматизации"""
     # Обновляем статус всех этапов в реальном времени
     await automation_service.update_stage_status()
-    return await automation_service.get_status()
+    return automation_service.get_status()
 
 @api_router.post("/automation/start")
 async def start_automation_pipeline(manual: bool = True):
@@ -1025,9 +942,6 @@ async def resume_automation_pipeline():
     automation_service.resume_pipeline()
     return {"message": "Пайплайн возобновлен"}
 
-# API endpoints для изменения настроек удалены - настройки теперь только через .env файл
-
-# Подключение единого API роутера
 app.include_router(api_router)
 
 

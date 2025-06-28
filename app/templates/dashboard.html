@@ -174,44 +174,7 @@
     </div>
 </div>
 
-<!-- Быстрые действия -->
-<div class="row mb-4">
-    <div class="col-12">
-        <div class="card">
-            <div class="card-header bg-warning text-dark">
-                <h5 class="mb-0"><i class="bi bi-lightning"></i> Быстрые действия</h5>
-            </div>
-            <div class="card-body">
-                <div class="row">
-                    <div class="col-md-3 mb-3">
-                        <button class="btn btn-gradient w-100" onclick="window.location.href='/scraping'">
-                            <i class="bi bi-cloud-download"></i><br>
-                            <small>Управление парсингом</small>
-                        </button>
-                    </div>
-                    <div class="col-md-3 mb-3">
-                        <button class="btn btn-gradient w-100" data-process="duplicates" onclick="startProcessing('duplicates')">
-                            <i class="bi bi-files"></i><br>
-                            <small>Поиск дубликатов</small>
-                        </button>
-                    </div>
-                    <div class="col-md-3 mb-3">
-                        <button class="btn btn-gradient w-100" data-process="photos" onclick="startProcessing('photos')">
-                            <i class="bi bi-images"></i><br>
-                            <small>Обработка фото</small>
-                        </button>
-                    </div>
-                    <div class="col-md-3 mb-3">
-                        <button class="btn btn-gradient w-100" onclick="window.location.href='/logs'">
-                            <i class="bi bi-journal-text"></i><br>
-                            <small>Просмотр логов</small>
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
+
 {% endblock %}
 
 {% block scripts %}
@@ -227,45 +190,6 @@ document.addEventListener('DOMContentLoaded', function() {
     setTimeout(updateDashboardStats, 2000);
 });
 
-// Функции быстрых действий
-async function startProcessing(type) {
-    const button = document.querySelector('[data-process="' + type + '"]');
-    if (button) {
-        button.disabled = true;
-        button.innerHTML = '<div class="spinner-border spinner-border-sm"></div><br><small>Запуск...</small>';
-    }
-    
-    try {
-        const response = await fetch('/api/process/' + type, {
-            method: 'POST'
-        });
-        
-        if (response.ok) {
-            showNotification('success', 'Обработка ' + type + ' запущена');
-            setTimeout(function() {
-                if (button) {
-                    button.disabled = false;
-                    button.innerHTML = getButtonContent(type);
-                }
-            }, 3000);
-        } else {
-            throw new Error('HTTP ' + response.status);
-        }
-    } catch (error) {
-        showNotification('error', 'Ошибка запуска обработки ' + type + ': ' + error.message);
-        if (button) {
-            button.disabled = false;
-            button.innerHTML = getButtonContent(type);
-        }
-    }
-}
 
-function getButtonContent(type) {
-    const contents = {
-        'duplicates': '<i class="bi bi-files"></i><br><small>Поиск дубликатов</small>',
-        'photos': '<i class="bi bi-images"></i><br><small>Обработка фото</small>'
-    };
-    return contents[type] || '';
-}
 </script>
 {% endblock %} 

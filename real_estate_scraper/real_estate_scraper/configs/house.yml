@@ -12,7 +12,7 @@ selectors:
 pagination:
   next_page_selector: 'a.page-link[aria-label="Вперед"]::attr(href)'
 
-max_pages: 1
+max_pages: 10
 
 detail:
   follow_link: true

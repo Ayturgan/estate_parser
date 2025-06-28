@@ -50,7 +50,7 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
                 'new_ads': count
             })
         
-        # Последние объявления (преобразуем в словари)
+        # Последние объявления
         recent_ads_query = db.query(db_models.DBUniqueAd).order_by(
             desc(db_models.DBUniqueAd.created_at)
         ).limit(5).all()
@@ -61,6 +61,7 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
                 'id': ad.id,
                 'title': ad.title or 'Без названия',
                 'price': ad.price,
+                'currency': ad.currency,
                 'duplicates_count': ad.duplicates_count,
                 'created_at': ad.created_at.isoformat() if ad.created_at and hasattr(ad.created_at, 'isoformat') else str(ad.created_at) if ad.created_at else None,
                 'location': {
@@ -123,7 +124,6 @@ async def ads_page(
 ):
     """Страница просмотра объявлений"""
     try:
-        # Строим запрос
         db_query = db.query(db_models.DBUniqueAd)
         
         # Применяем поиск по тексту
@@ -189,7 +189,6 @@ async def ads_page(
         total = db_query.count()
         ads = db_query.offset(offset).limit(limit).all()
         
-        # Получаем уникальные города и районы для фильтров
         cities = db.query(distinct(db_models.DBLocation.city)).filter(
             db_models.DBLocation.city.isnot(None)
         ).all()
@@ -238,12 +237,7 @@ async def ads_page(
 
 
 
-@web_router.get("/logs", response_class=HTMLResponse)
-async def logs_page(request: Request):
-    """Страница просмотра логов"""
-    return templates.TemplateResponse("logs.html", {
-        "request": request
-    })
+
 
 @web_router.get("/automation", response_class=HTMLResponse)
 async def automation_page(request: Request):

@@ -33,17 +33,21 @@ class AutomationService:
     def __init__(self, api_base_url: str = "http://localhost:8000"):
         self.api_base_url = api_base_url
         self.session: Optional[aiohttp.ClientSession] = None
-        
-        # Состояние пайплайна
         self.pipeline_status = PipelineStatus.IDLE
         self.current_stage: Optional[PipelineStage] = None
         self.last_run_start: Optional[datetime] = None
         self.last_run_end: Optional[datetime] = None
         self.next_run_scheduled: Optional[datetime] = None
         self.is_auto_mode = os.getenv('RUN_IMMEDIATELY_ON_START', 'false').lower() == 'true'
-        self.interval_hours = int(os.getenv('PIPELINE_INTERVAL_HOURS', '3'))
         
-        # Детали выполнения
+        interval_minutes = os.getenv('PIPELINE_INTERVAL_MINUTES')
+        if interval_minutes:
+            self.interval_minutes = int(interval_minutes)
+            self.interval_hours = self.interval_minutes / 60.0
+        else:
+            self.interval_hours = int(os.getenv('PIPELINE_INTERVAL_HOURS', '3'))
+            self.interval_minutes = self.interval_hours * 60
+        
         self.stage_details = {
             PipelineStage.SCRAPING: {
                 "name": "Парсинг сайтов",
@@ -112,7 +116,6 @@ class AutomationService:
             }
         }
         
-        # Настройки из переменных окружения
         self.enabled_stages = {
             PipelineStage.SCRAPING: os.getenv('ENABLE_SCRAPING', 'true').lower() == 'true',
             PipelineStage.PHOTO_PROCESSING: os.getenv('ENABLE_PHOTO_PROCESSING', 'true').lower() == 'true', 
@@ -121,15 +124,14 @@ class AutomationService:
             PipelineStage.ELASTICSEARCH_REINDEX: os.getenv('ENABLE_ELASTICSEARCH_REINDEX', 'true').lower() == 'true'
         }
         
-        # Источники парсинга из переменных окружения
         sources_str = os.getenv('SCRAPING_SOURCES', 'house,lalafo,stroka')
         self.scraping_sources = [s.strip() for s in sources_str.split(',') if s.strip()]
-        
-        # Фоновая задача
         self._background_task: Optional[asyncio.Task] = None
-        
-        # Исходная статистика для отслеживания новых объявлений
         self.initial_stats = None
+        self._last_new_ads = 0
+        self._last_processed_ads = 0
+        self._last_duplicates_found = 0
+        self._last_realtors_found = 0
         
     async def start_service(self):
         """Запуск сервиса автоматизации"""
@@ -138,6 +140,10 @@ class AutomationService:
         
         if not self._background_task:
             self._background_task = asyncio.create_task(self._background_scheduler())
+            
+        if self.is_auto_mode and self.pipeline_status == PipelineStatus.IDLE:
+            logger.info("🚀 Запуск пайплайна при старте сервиса (RUN_IMMEDIATELY_ON_START=true)")
+            asyncio.create_task(self._delayed_start())
             
         logger.info("🚀 Сервис автоматизации запущен")
     
@@ -157,19 +163,30 @@ class AutomationService:
             
         logger.info("🛑 Сервис автоматизации остановлен")
     
+    async def _delayed_start(self):
+        """Отложенный запуск пайплайна при старте сервиса"""
+        try:
+            await asyncio.sleep(10)
+            if self.pipeline_status == PipelineStatus.IDLE:
+                logger.info("⚡ Запуск немедленного пайплайна (RUN_IMMEDIATELY_ON_START)")
+                await self.start_pipeline(manual=False)
+                
+        except Exception as e:
+            logger.error(f"Ошибка отложенного запуска: {e}")
+
     async def _background_scheduler(self):
         """Фоновый планировщик для автоматического режима"""
         while True:
             try:
                 if (self.is_auto_mode and 
-                    self.pipeline_status == PipelineStatus.IDLE and
+                    self.pipeline_status in [PipelineStatus.IDLE, PipelineStatus.COMPLETED] and
                     self.next_run_scheduled and
                     datetime.now() >= self.next_run_scheduled):
                     
                     logger.info("⏰ Запуск автоматического пайплайна по расписанию")
                     await self.start_pipeline()
                 
-                await asyncio.sleep(60)  # Проверяем каждую минуту
+                await asyncio.sleep(60)  
                 
             except asyncio.CancelledError:
                 break
@@ -181,21 +198,15 @@ class AutomationService:
         """Запуск полного пайплайна"""
         if self.pipeline_status == PipelineStatus.RUNNING:
             return False
-            
         self.pipeline_status = PipelineStatus.RUNNING
         self.last_run_start = datetime.now()
         self.last_run_end = None
         
-        if not manual:
-            # Планируем следующий запуск
-            self.next_run_scheduled = datetime.now() + timedelta(hours=self.interval_hours)
         
         logger.info(f"🚀 Запуск пайплайна ({'ручной' if manual else 'автоматический'})")
         
         try:
             success = True
-            
-            # Выполняем все этапы последовательно
             for stage in PipelineStage:
                 if not self.enabled_stages.get(stage, False):
                     continue
@@ -210,6 +221,17 @@ class AutomationService:
             self.pipeline_status = PipelineStatus.COMPLETED if success else PipelineStatus.ERROR
             self.current_stage = None
             self.last_run_end = datetime.now()
+            scraping_progress = self.stage_details[PipelineStage.SCRAPING]["progress"]
+            duplicate_progress = self.stage_details[PipelineStage.DUPLICATE_PROCESSING]["progress"]
+            realtor_progress = self.stage_details[PipelineStage.REALTOR_DETECTION]["progress"]
+            
+            self._last_new_ads = scraping_progress.get("new_ads", 0)
+            self._last_processed_ads = scraping_progress.get("processed_ads", 0)  
+            self._last_duplicates_found = duplicate_progress.get("duplicates_found", 0)
+            self._last_realtors_found = realtor_progress.get("detected", 0)
+            if not manual and self.is_auto_mode:
+                self.next_run_scheduled = datetime.now() + timedelta(minutes=self.interval_minutes)
+                logger.info(f"⏰ Следующий автоматический запуск запланирован на {self.next_run_scheduled.strftime('%H:%M:%S')}")
             
             logger.info(f"✅ Пайплайн завершен {'успешно' if success else 'с ошибками'}")
             return success
@@ -218,6 +240,18 @@ class AutomationService:
             self.pipeline_status = PipelineStatus.ERROR
             self.current_stage = None
             self.last_run_end = datetime.now()
+            scraping_progress = self.stage_details[PipelineStage.SCRAPING]["progress"]
+            duplicate_progress = self.stage_details[PipelineStage.DUPLICATE_PROCESSING]["progress"]
+            realtor_progress = self.stage_details[PipelineStage.REALTOR_DETECTION]["progress"]
+            
+            self._last_new_ads = scraping_progress.get("new_ads", 0)
+            self._last_processed_ads = scraping_progress.get("processed_ads", 0)  
+            self._last_duplicates_found = duplicate_progress.get("duplicates_found", 0)
+            self._last_realtors_found = realtor_progress.get("detected", 0)
+            if not manual and self.is_auto_mode:
+                self.next_run_scheduled = datetime.now() + timedelta(minutes=self.interval_minutes)
+                logger.info(f"⏰ Следующий автоматический запуск запланирован на {self.next_run_scheduled.strftime('%H:%M:%S')} (после ошибки)")
+            
             logger.error(f"❌ Ошибка выполнения пайплайна: {e}")
             return False
     
@@ -255,7 +289,6 @@ class AutomationService:
     
     async def _execute_scraping(self) -> bool:
         """Выполнение этапа парсинга"""
-        # Сохраняем исходную статистику
         await self._update_stats()
         
         job_ids = []
@@ -267,8 +300,6 @@ class AutomationService:
         progress["sources_completed"] = 0
         progress["new_ads"] = 0
         progress["processed_ads"] = 0
-        
-        # Запускаем парсинг по всем источникам
         for source in self.scraping_sources:
             try:
                 async with self.session.post(f"{self.api_base_url}/api/scraping/start/{source}") as response:
@@ -288,8 +319,6 @@ class AutomationService:
         
         if not job_ids:
             return False
-            
-        # Ждем завершения всех задач
         return await self._wait_for_scraping_completion(job_ids)
     
     async def _wait_for_scraping_completion(self, job_ids: list) -> bool:
@@ -298,7 +327,6 @@ class AutomationService:
         completed_jobs = set()
         
         while len(completed_jobs) < len(job_ids):
-            # Обновляем статистику на каждой итерации
             await self._update_stats()
             
             for source, job_id in job_ids:
@@ -329,16 +357,14 @@ class AutomationService:
                     logger.error(f"❌ Ошибка проверки статуса {source}: {e}")
             
             if len(completed_jobs) < len(job_ids):
-                await asyncio.sleep(30)  # Проверяем каждые 30 секунд
-        
-        # Финальное обновление статистики
+                await asyncio.sleep(30)
         await self._update_stats()
         return progress["failed"] == 0
     
     async def _wait_for_process_completion(self, process_type: str) -> bool:
         """Ожидание завершения фоновых процессов"""
-        max_wait_time = 3600  # Максимум 1 час ожидания
-        check_interval = 30   # Проверяем каждые 30 секунд
+        max_wait_time = 3600  
+        check_interval = 30  
         elapsed_time = 0
         
         while elapsed_time < max_wait_time:
@@ -358,8 +384,6 @@ class AutomationService:
                 async with self.session.get(f"{self.api_base_url}{endpoint}") as response:
                     if response.status == 200:
                         data = await response.json()
-                        
-                        # Проверяем статус в зависимости от типа процесса
                         if process_type == "photos":
                             status = data.get('status', 'unknown')
                             if status in ['completed', 'idle']:
@@ -388,11 +412,9 @@ class AutomationService:
                                 return False
                                 
                         elif process_type == "elasticsearch":
-                            # Для elasticsearch просто проверяем доступность
                             logger.info(f"✅ Переиндексация завершена")
                             return True
                             
-                        # Если процесс еще выполняется, ждем
                         logger.info(f"⏳ {process_type} еще выполняется, ожидание...")
                         
                     else:
@@ -410,12 +432,10 @@ class AutomationService:
     async def _execute_photo_processing(self) -> bool:
         """Выполнение обработки фотографий"""
         try:
-            # Запускаем обработку фотографий
             async with self.session.post(f"{self.api_base_url}/api/process/photos") as response:
                 if response.status not in [200, 201, 202]:
                     return False
                     
-            # Ждем завершения обработки фотографий
             logger.info("📸 Обработка фотографий запущена, ожидание завершения...")
             return await self._wait_for_process_completion("photos")
         except Exception as e:
@@ -425,12 +445,10 @@ class AutomationService:
     async def _execute_duplicate_processing(self) -> bool:
         """Выполнение обработки дубликатов"""
         try:
-            # Запускаем обработку дубликатов
             async with self.session.post(f"{self.api_base_url}/api/process/duplicates") as response:
                 if response.status not in [200, 201, 202]:
                     return False
                     
-            # Ждем завершения обработки дубликатов
             logger.info("🔍 Обработка дубликатов запущена, ожидание завершения...")
             return await self._wait_for_process_completion("duplicates")
         except Exception as e:
@@ -440,12 +458,10 @@ class AutomationService:
     async def _execute_realtor_detection(self) -> bool:
         """Выполнение определения риэлторов"""
         try:
-            # Запускаем определение риэлторов
             async with self.session.post(f"{self.api_base_url}/api/process/realtors/detect") as response:
                 if response.status not in [200, 201, 202]:
                     return False
                     
-            # Ждем завершения определения риэлторов
             logger.info("👤 Определение риэлторов запущено, ожидание завершения...")
             return await self._wait_for_process_completion("realtors")
         except Exception as e:
@@ -455,12 +471,10 @@ class AutomationService:
     async def _execute_elasticsearch_reindex(self) -> bool:
         """Выполнение переиндексации"""
         try:
-            # Запускаем переиндексацию
             async with self.session.post(f"{self.api_base_url}/api/elasticsearch/reindex") as response:
                 if response.status not in [200, 201, 202]:
                     return False
                     
-            # Ждем завершения переиндексации
             logger.info("🔍 Переиндексация запущена, ожидание завершения...")
             return await self._wait_for_process_completion("elasticsearch")
         except Exception as e:
@@ -469,15 +483,36 @@ class AutomationService:
     
     def get_status(self) -> Dict[str, Any]:
         """Получение полного статуса автоматизации"""
+        scraping_progress = self.stage_details[PipelineStage.SCRAPING]["progress"]
+        duplicate_progress = self.stage_details[PipelineStage.DUPLICATE_PROCESSING]["progress"]
+        realtor_progress = self.stage_details[PipelineStage.REALTOR_DETECTION]["progress"]
+        
+        if self.pipeline_status == PipelineStatus.IDLE and self.last_run_end:
+            stats = {
+                "new_ads": scraping_progress.get("new_ads", 0) or getattr(self, '_last_new_ads', 0),
+                "processed_ads": scraping_progress.get("processed_ads", 0) or getattr(self, '_last_processed_ads', 0),
+                "duplicates_found": duplicate_progress.get("duplicates_found", 0) or getattr(self, '_last_duplicates_found', 0),
+                "realtors_found": realtor_progress.get("detected", 0) or getattr(self, '_last_realtors_found', 0)
+            }
+        else:
+            stats = {
+                "new_ads": scraping_progress.get("new_ads", 0),
+                "processed_ads": scraping_progress.get("processed_ads", 0),
+                "duplicates_found": duplicate_progress.get("duplicates_found", 0),
+                "realtors_found": realtor_progress.get("detected", 0)
+            }
+        
         return {
             "pipeline_status": self.pipeline_status.value,
             "current_stage": self.current_stage.value if self.current_stage else None,
             "is_auto_mode": self.is_auto_mode,
             "interval_hours": self.interval_hours,
+            "interval_minutes": self.interval_minutes,
             "scraping_sources": self.scraping_sources,
             "last_run_start": self.last_run_start.isoformat() if self.last_run_start else None,
             "last_run_end": self.last_run_end.isoformat() if self.last_run_end else None,
             "next_run_scheduled": self.next_run_scheduled.isoformat() if self.next_run_scheduled else None,
+            "stats": stats,
             "enabled_stages": {stage.value: enabled for stage, enabled in self.enabled_stages.items()},
             "stage_details": {
                 stage.value: {
@@ -489,7 +524,6 @@ class AutomationService:
             }
         }
     
-    # Методы управления автоматическим режимом удалены - настройки только через .env файл
     
     def pause_pipeline(self):
         """Приостановка пайплайна"""
@@ -521,7 +555,6 @@ class AutomationService:
                     if self.initial_stats is None:
                         self.initial_stats = current_stats.copy()
                     
-                    # Обновляем прогресс парсинга
                     if self.current_stage == PipelineStage.SCRAPING:
                         progress = self.stage_details[PipelineStage.SCRAPING]["progress"]
                         progress["new_ads"] = current_stats.get("total_original_ads", 0) - self.initial_stats.get("total_original_ads", 0)
@@ -538,16 +571,9 @@ class AutomationService:
             return
             
         try:
-            # Обновляем статус обработки дубликатов
             await self._update_duplicates_status()
-            
-            # Обновляем статус обработки фотографий
             await self._update_photos_status()
-            
-            # Обновляем статус определения риэлторов
             await self._update_realtors_status()
-            
-            # Обновляем статус парсинга
             await self._update_scraping_status()
             
         except Exception as e:
@@ -566,8 +592,6 @@ class AutomationService:
                         stage["status"] = "running"
                         if not stage["started_at"]:
                             stage["started_at"] = datetime.now()
-                        
-                        # Обновляем прогресс если есть данные
                         progress = data.get('progress', {})
                         if progress:
                             stage["progress"].update(progress)
@@ -576,8 +600,6 @@ class AutomationService:
                         stage["status"] = "completed"
                         if not stage["completed_at"]:
                             stage["completed_at"] = datetime.now()
-                        
-                        # Сбрасываем статус на idle через 10 секунд после завершения
                         last_completed = data.get('last_completed')
                         if last_completed:
                             try:
@@ -615,8 +637,6 @@ class AutomationService:
                         stage["status"] = "running"
                         if not stage["started_at"]:
                             stage["started_at"] = datetime.now()
-                        
-                        # Обновляем прогресс если есть данные
                         progress = data.get('progress', {})
                         if progress:
                             stage["progress"].update(progress)
@@ -625,8 +645,6 @@ class AutomationService:
                         stage["status"] = "completed"
                         if not stage["completed_at"]:
                             stage["completed_at"] = datetime.now()
-                        
-                        # Сбрасываем статус на idle через 10 секунд после завершения
                         last_completed = data.get('last_completed')
                         if last_completed:
                             try:
@@ -664,8 +682,6 @@ class AutomationService:
                         stage["status"] = "running"
                         if not stage["started_at"]:
                             stage["started_at"] = datetime.now()
-                        
-                        # Обновляем прогресс если есть данные
                         progress = data.get('progress', {})
                         if progress:
                             stage["progress"].update(progress)
@@ -674,8 +690,6 @@ class AutomationService:
                         stage["status"] = "completed"
                         if not stage["completed_at"]:
                             stage["completed_at"] = datetime.now()
-                        
-                        # Сбрасываем статус на idle через 10 секунд после завершения
                         last_completed = data.get('last_completed')
                         if last_completed:
                             try:
@@ -707,21 +721,15 @@ class AutomationService:
                 if response.status == 200:
                     jobs = await response.json()
                     stage = self.stage_details[PipelineStage.SCRAPING]
-                    
-                    # Проверяем есть ли активные задачи парсинга
                     running_jobs = [job for job in jobs if job.get('status') == 'выполняется']
                     
                     if running_jobs:
                         stage["status"] = "running"
                         if not stage["started_at"]:
                             stage["started_at"] = datetime.now()
-                        
-                        # Обновляем прогресс парсинга
                         progress = stage["progress"]
                         progress["sources_active"] = len(running_jobs)
                         progress["total"] = len(self.scraping_sources)
-                        
-                        # Считаем завершенные источники
                         completed_sources = 0
                         for source in self.scraping_sources:
                             source_jobs = [j for j in jobs if j.get('config') == source]
@@ -733,7 +741,6 @@ class AutomationService:
                         progress["sources_completed"] = completed_sources
                         
                     else:
-                        # Проверяем были ли недавние завершенные задачи
                         recent_completed = [job for job in jobs if job.get('status') == 'завершено']
                         if recent_completed and stage["status"] == "running":
                             stage["status"] = "completed"
@@ -744,5 +751,4 @@ class AutomationService:
         except Exception as e:
             logger.debug(f"Не удалось обновить статус парсинга: {e}")
 
-# Глобальный экземпляр сервиса
 automation_service = AutomationService() 
