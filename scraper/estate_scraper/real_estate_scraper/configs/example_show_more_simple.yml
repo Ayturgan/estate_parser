@@ -1,0 +1,56 @@
+name: "example_show_more_simple"
+source_name: "example-show-more-simple.com"
+spider_type: "html"
+parse_all_listings: false
+max_items_limit: 10
+
+base_url: "https://example-show-more-simple.com"
+
+# Прямые настройки типа недвижимости и сделки
+property_type: "Квартира"      # Тип недвижимости: Квартира, Дом, Коммерческая недвижимость, и т.д.
+listing_type: "Продажа"        # Тип сделки: Продажа, Аренда
+
+# URL страницы для парсинга
+start_url: "/buy/apartments"   # URL страницы с объявлениями
+
+# Настройки кнопки "Показать еще"
+show_more_settings:
+  enabled: true
+  button_selector: ".load-more-button"  # CSS селектор кнопки
+  button_text: "Показать еще"          # Текст кнопки (опционально)
+  max_clicks: 5                        # Максимум кликов
+  wait_time: 3                         # Время ожидания после клика
+  scroll_before_click: true            # Прокрутить к кнопке
+
+# Селекторы для парсинга
+selectors:
+  ads_list: ".listings-container"      # Контейнер со всеми объявлениями
+  ad_card: ".listing-card"            # Карточка одного объявления
+  
+  title: ".title a::text"             # Заголовок
+  url: ".title a::attr(href)"         # Ссылка на объявление
+  price: ".price::text"               # Цена
+  location: ".location::text"         # Местоположение
+  description: ".description::text"   # Описание
+  image: ".image img::attr(src)"      # Изображение
+  
+  # Детальная информация (опционально)
+  details:
+    rooms: ".details .rooms::text"
+    area: ".details .area::text"
+    floor: ".details .floor::text"
+    images: ".grid-item a::attr(href)"  # Все изображения из галереи
+
+# Настройки запросов
+request_settings:
+  delay: 2
+  timeout: 30
+  retries: 3
+  user_agent_rotation: true
+
+# Обработка данных
+data_processing:
+  ai_extraction: true
+  ai_classification: false
+  price_cleaning: true
+  description_cleaning: true 

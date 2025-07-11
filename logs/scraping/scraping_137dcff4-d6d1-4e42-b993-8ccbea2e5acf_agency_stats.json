@@ -1,0 +1,16 @@
+{
+  "job_id": "137dcff4-d6d1-4e42-b993-8ccbea2e5acf",
+  "config_name": "agency",
+  "started_at": "2025-07-10T07:50:11.604869",
+  "items_total": 0,
+  "items_processed": 0,
+  "items_failed": 0,
+  "pages_processed": 0,
+  "api_calls_success": 0,
+  "api_calls_failed": 0,
+  "errors": [],
+  "warnings": [],
+  "finished_at": "2025-07-10T07:50:12.174409",
+  "status": "failed",
+  "final_error": "Process returned code 1"
+}

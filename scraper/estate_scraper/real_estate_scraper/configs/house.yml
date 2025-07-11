@@ -1,0 +1,120 @@
+name: "house"
+source_name: "house.kg"
+spider_type: "html"
+parse_all_listings: false
+max_items_limit: 10
+
+base_url: "https://www.house.kg"
+
+# Категории недвижимости с точной классификацией
+categories:
+  # === ПРОДАЖА ===
+  - url: "/kupit-kvartiru"
+    property_type: "Квартира"
+    listing_type: "Продажа"
+    name: "квартиры_продажа"
+    
+  - url: "/kupit-dom"
+    property_type: "Дом"
+    listing_type: "Продажа"
+    name: "дома_продажа"
+    
+  - url: "/kupit-kommercheskaia-nedvijimost"
+    property_type: "Коммерческая недвижимость"
+    listing_type: "Продажа"
+    name: "коммерческая_продажа"
+    
+  - url: "/kupit-komnatu"
+    property_type: "Комната"
+    listing_type: "Продажа"
+    name: "комнаты_продажа"
+    
+  - url: "/kupit-uchastok"
+    property_type: "Земельный участок"
+    listing_type: "Продажа"
+    name: "участки_продажа"
+    
+  - url: "/kupit-dachu"
+    property_type: "Дача"
+    listing_type: "Продажа"
+    name: "дачи_продажа"
+    
+  - url: "/kupit-parking-garaj"
+    property_type: "Гараж"
+    listing_type: "Продажа"
+    name: "гаражи_продажа"
+
+  # === АРЕНДА ===
+  - url: "/snyat-kvartiru"
+    property_type: "Квартира"
+    listing_type: "Аренда"
+    name: "квартиры_аренда"
+    
+  - url: "/snyat-dom"
+    property_type: "Дом"
+    listing_type: "Аренда"
+    name: "дома_аренда"
+    
+  - url: "/snyat-kommercheskaia-nedvijimost"
+    property_type: "Коммерческая недвижимость"
+    listing_type: "Аренда"
+    name: "коммерческая_аренда"
+    
+  - url: "/snyat-komnatu"
+    property_type: "Комната"
+    listing_type: "Аренда"
+    name: "комнаты_аренда"
+    
+  - url: "/snyat-uchastok"
+    property_type: "Земельный участок"
+    listing_type: "Аренда"
+    name: "участки_аренда"
+    
+  - url: "/snyat-dachu"
+    property_type: "Дача"
+    listing_type: "Аренда"
+    name: "дачи_аренда"
+    
+  - url: "/snyat-parking-garaj"
+    property_type: "Гараж"
+    listing_type: "Аренда"
+    name: "гаражи_аренда"
+
+pagination:
+  start_page: 1
+  page_url_format: "{base_url}{category_url}?page={page}"
+# Селекторы для парсинга
+selectors:
+  ads_list: "div.listings-wrapper"
+  ad_card: "div.listing"
+  title: "div.top-info p.title a::text"
+  url: "div.top-info p.title a::attr(href)"
+  price: "div.price-addition::text"
+  price_usd: "div.price::text"
+  details:
+    address: "xpath:normalize-space(//div[@class='address'])"
+    offer_type: "xpath:normalize-space(//div[contains(@class, 'info-row')][.//div[contains(@class, 'label') and contains(text(), 'Тип предложения')]]//div[contains(@class, 'info')])"
+    series: "xpath:normalize-space(//div[contains(@class, 'info-row')][.//div[contains(@class, 'label') and contains(text(), 'Серия')]]//div[contains(@class, 'info')])"
+    building: "xpath:normalize-space(//div[contains(@class, 'info-row')][.//div[contains(@class, 'label') and contains(text(), 'Дом')]]//div[contains(@class, 'info')])"
+    floor: "xpath:normalize-space(//div[contains(@class, 'info-row')][.//div[contains(@class, 'label') and contains(text(), 'Этаж')]]//div[contains(@class, 'info')])"
+    area: "xpath:normalize-space(//div[contains(@class, 'info-row')][.//div[contains(@class, 'label') and contains(text(), 'Площадь')]]//div[contains(@class, 'info')])"
+    heating: "xpath:normalize-space(//div[contains(@class, 'info-row')][.//div[contains(@class, 'label') and contains(text(), 'Отопление')]]//div[contains(@class, 'info')])"
+    condition: "xpath:normalize-space(//div[contains(@class, 'info-row')][.//div[contains(@class, 'label') and contains(text(), 'Состояние')]]//div[contains(@class, 'info')])"
+    ceiling_height: "xpath:normalize-space(//div[contains(@class, 'info-row')][.//div[contains(@class, 'label') and contains(text(), 'Высота потолков')]]//div[contains(@class, 'info')])"
+    description: "xpath:normalize-space(//div[contains(@class, 'description')]//p[contains(@class, 'comment')]//span[contains(@class, 'original')])"
+    images: "xpath://img[contains(@class, 'fotorama__img')]/@src"
+    phone: "xpath://a[contains(@class, 'show-number')]//div[@class='number']/text()"
+
+# Настройки запросов  
+request_settings:
+  delay: 2
+  timeout: 30
+  retries: 3
+  user_agent_rotation: true
+
+# Обработка данных
+data_processing:
+  ai_extraction: true  # ИИ только для извлечения данных (НЕ классификации)
+  ai_classification: false  # Классификация из категорий URL
+  price_cleaning: true
+  description_cleaning: true

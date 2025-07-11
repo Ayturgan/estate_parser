@@ -1,0 +1,59 @@
+name: "An"
+source_name: "an.kg"
+spider_type: "html"
+parse_all_listings: false
+max_items_limit: 100
+
+base_url: "https://an.kg/"
+
+# URL страницы для парсинга
+start_url: "/"   # URL страницы с объявлениями
+
+# Настройки кнопки "Показать еще"
+show_more_settings:
+  enabled: true
+  button_selector: ".show-more"  # CSS селектор кнопки
+  button_text: "Показать еще"          # Текст кнопки (опционально)
+  max_clicks: 5                        # Максимум кликов
+  wait_time: 3                         # Время ожидания после клика
+  scroll_before_click: true            # Прокрутить к кнопке
+
+# Селекторы для парсинга
+selectors:
+  ads_list: ".estate_list"      # Контейнер со всеми объявлениями
+  ad_card: ".card"            # Карточка одного объявления
+  
+  title: ".versale-card-title::text"             # Заголовок
+  url: ".versale-card-title::attr(href)"     # Тип сделки (Продаётся, Сдаётся и т.д.)
+  
+  # Детальная информация (опционально)
+  details:
+    # XPath селекторы для извлечения данных из списка
+    property_type: "xpath://tr[td[@class='name']='Тип недвижимости']/td[@class='value']/text()"
+    listing_type: "xpath://tr[td[@class='name']='Тип сделки']/td[@class='value']/text()"
+    floor: "xpath://tr[td[@class='name']='Этаж']/td[@class='value']/text()"
+    total_floors: "xpath://tr[td[@class='name']='Этажность']/td[@class='value']/text()"
+    city: "xpath://tr[td[@class='name']='Город']/td[@class='value']/text()"
+    country: "xpath://tr[td[@class='name']='Страна']/td[@class='value']/text()"
+    district: "xpath://tr[td[@class='name']='Район']/td[@class='value']/text()"
+    building_type: "xpath://tr[td[@class='name']='Материал стен']/td[@class='value']/text()"
+    area_sqm: "xpath://tr[td[@class='name']='Общая площадь']/td[@class='value']/text()"
+    price: "xpath://tr[td[@class='name']='Цена за весь объект']/td[@class='value']/text()"
+    images: ".property-pictures a::attr(href)"  # Все изображения из галереи
+    description: ".property-descr p::text"   # Описание
+    phone: ".info_item .phone::text"  # Номер телефона
+
+
+# Настройки запросов
+request_settings:
+  delay: 2
+  timeout: 30
+  retries: 3
+  user_agent_rotation: true
+
+# Обработка данных
+data_processing:
+  ai_extraction: true
+  ai_classification: false
+  price_cleaning: true
+  description_cleaning: true 

@@ -1,0 +1,286 @@
+{% extends "base.html" %}
+
+{% block title %}Настройки системы{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h1 class="h3 mb-0">
+                    <i class="bi bi-gear-fill text-primary"></i> Настройки системы
+                </h1>
+            </div>
+        </div>
+    </div>
+
+    <!-- Уведомления -->
+    <div id="settings-notifications"></div>
+
+    <!-- Категории настроек -->
+    <div class="row">
+        <!-- Автоматизация -->
+        <div class="col-lg-6 mb-4">
+            <div class="card h-100">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0">
+                        <i class="bi bi-robot"></i> Автоматизация
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="auto_mode" 
+                                   onchange="updateSetting('auto_mode', this.checked, 'bool')">
+                            <label class="form-check-label" for="auto_mode">
+                                Включить автоматический запуск пайплайна
+                            </label>
+                        </div>
+                        <small class="text-muted">Пайплайн будет запускаться автоматически по расписанию</small>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="pipeline_interval_minutes" class="form-label">
+                            <i class="bi bi-clock"></i> Интервал запуска (минуты)
+                        </label>
+                        <input type="number" class="form-control" id="pipeline_interval_minutes" 
+                               min="1" max="1440" onchange="updateSetting('pipeline_interval_minutes', this.value, 'int')">
+                        <small class="text-muted">Интервал между автоматическими запусками пайплайна</small>
+                    </div>
+
+                    <div class="mb-3">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="run_immediately_on_start" 
+                                   onchange="updateSetting('run_immediately_on_start', this.checked, 'bool')">
+                            <label class="form-check-label" for="run_immediately_on_start">
+                                Запускать при старте сервиса
+                            </label>
+                        </div>
+                        <small class="text-muted">Запускать пайплайн сразу при запуске системы</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Парсинг -->
+        <div class="col-lg-6 mb-4">
+            <div class="card h-100">
+                <div class="card-header bg-info text-white">
+                    <h5 class="mb-0">
+                        <i class="bi bi-globe"></i> Парсинг
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="enable_scraping" 
+                                   onchange="updateSetting('enable_scraping', this.checked, 'bool')">
+                            <label class="form-check-label" for="enable_scraping">
+                                Включить парсинг
+                            </label>
+                        </div>
+                        <small class="text-muted">Включить этап парсинга объявлений</small>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="scraping_sources" class="form-label">
+                            <i class="bi bi-list"></i> Источники для парсинга
+                        </label>
+                        <div id="scraping_sources_container">
+                            <!-- Источники будут загружены динамически -->
+                        </div>
+                        <small class="text-muted">Сайты для парсинга</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Обработка -->
+        <div class="col-lg-6 mb-4">
+            <div class="card h-100">
+                <div class="card-header bg-warning text-dark">
+                    <h5 class="mb-0">
+                        <i class="bi bi-gear-wide-connected"></i> Обработка данных
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="enable_photo_processing" 
+                                   onchange="updateSetting('enable_photo_processing', this.checked, 'bool')">
+                            <label class="form-check-label" for="enable_photo_processing">
+                                Обработка фотографий
+                            </label>
+                        </div>
+                        <small class="text-muted">Вычисление хешей и оптимизация изображений</small>
+                    </div>
+
+                    <div class="mb-3">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="enable_duplicate_processing" 
+                                   onchange="updateSetting('enable_duplicate_processing', this.checked, 'bool')">
+                            <label class="form-check-label" for="enable_duplicate_processing">
+                                Обработка дубликатов
+                            </label>
+                        </div>
+                        <small class="text-muted">Поиск и группировка похожих объявлений</small>
+                    </div>
+
+                    <div class="mb-3">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="enable_realtor_detection" 
+                                   onchange="updateSetting('enable_realtor_detection', this.checked, 'bool')">
+                            <label class="form-check-label" for="enable_realtor_detection">
+                                Определение риэлторов
+                            </label>
+                        </div>
+                        <small class="text-muted">Автоматическое определение риэлторских объявлений</small>
+                    </div>
+
+                    <div class="mb-3">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="enable_elasticsearch_reindex" 
+                                   onchange="updateSetting('enable_elasticsearch_reindex', this.checked, 'bool')">
+                            <label class="form-check-label" for="enable_elasticsearch_reindex">
+                                Переиндексация поиска
+                            </label>
+                        </div>
+                        <small class="text-muted">Обновление индекса Elasticsearch</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Глобальные переменные
+let currentSettings = {};
+
+// Инициализация страницы
+document.addEventListener('DOMContentLoaded', function() {
+    loadSettings();
+});
+
+// Загрузка всех настроек
+async function loadSettings() {
+    try {
+        const response = await fetch('/api/settings');
+        if (response.ok) {
+            currentSettings = await response.json();
+            populateSettingsForm();
+        } else {
+            showNotification('Ошибка загрузки настроек', 'error');
+        }
+    } catch (error) {
+        console.error('Ошибка загрузки настроек:', error);
+        showNotification('Ошибка загрузки настроек', 'error');
+    }
+}
+
+// Заполнение формы настройками
+function populateSettingsForm() {
+    // Автоматизация
+    document.getElementById('auto_mode').checked = currentSettings.auto_mode || false;
+    document.getElementById('pipeline_interval_minutes').value = currentSettings.pipeline_interval_minutes || 180;
+    document.getElementById('run_immediately_on_start').checked = currentSettings.run_immediately_on_start || false;
+    
+    // Парсинг
+    document.getElementById('enable_scraping').checked = currentSettings.enable_scraping || false;
+    populateScrapingSources(currentSettings.scraping_sources || []);
+    
+    // Обработка
+    document.getElementById('enable_photo_processing').checked = currentSettings.enable_photo_processing || false;
+    document.getElementById('enable_duplicate_processing').checked = currentSettings.enable_duplicate_processing || false;
+    document.getElementById('enable_realtor_detection').checked = currentSettings.enable_realtor_detection || false;
+    document.getElementById('enable_elasticsearch_reindex').checked = currentSettings.enable_elasticsearch_reindex || false;
+    
+
+}
+
+// Заполнение источников парсинга
+function populateScrapingSources(sources) {
+    const container = document.getElementById('scraping_sources_container');
+    const availableSources = ['lalafo', 'stroka', 'house', 'agency', 'an'];
+    
+    container.innerHTML = '';
+    
+    availableSources.forEach(source => {
+        const div = document.createElement('div');
+        div.className = 'form-check';
+        div.innerHTML = `
+            <input class="form-check-input" type="checkbox" id="source_${source}" 
+                   value="${source}" ${sources.includes(source) ? 'checked' : ''} 
+                   onchange="updateScrapingSources()">
+            <label class="form-check-label" for="source_${source}">
+                ${source.charAt(0).toUpperCase() + source.slice(1)}
+            </label>
+        `;
+        container.appendChild(div);
+    });
+}
+
+// Обновление источников парсинга
+function updateScrapingSources() {
+    const checkboxes = document.querySelectorAll('#scraping_sources_container input[type="checkbox"]:checked');
+    const sources = Array.from(checkboxes).map(cb => cb.value);
+    updateSetting('scraping_sources', sources, 'json');
+}
+
+// Обновление настройки
+async function updateSetting(key, value, valueType = 'string') {
+    try {
+        const response = await fetch(`/api/settings/${key}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                value: value,
+                value_type: valueType
+            })
+        });
+        
+        if (response.ok) {
+            const result = await response.json();
+            if (result.success) {
+                currentSettings[key] = value;
+                showNotification(`Настройка "${key}" обновлена`, 'success');
+            } else {
+                showNotification(`Ошибка обновления настройки "${key}"`, 'error');
+            }
+        } else {
+            showNotification(`Ошибка обновления настройки "${key}"`, 'error');
+        }
+    } catch (error) {
+        console.error('Ошибка обновления настройки:', error);
+        showNotification(`Ошибка обновления настройки "${key}"`, 'error');
+    }
+}
+
+
+
+// Показ уведомлений
+function showNotification(message, type = 'info') {
+    const container = document.getElementById('settings-notifications');
+    const alert = document.createElement('div');
+    alert.className = `alert alert-${type === 'error' ? 'danger' : type} alert-dismissible fade show`;
+    alert.innerHTML = `
+        ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+    container.appendChild(alert);
+    
+    // Автоматически скрыть через 5 секунд
+    setTimeout(() => {
+        if (alert.parentNode) {
+            alert.remove();
+        }
+    }, 5000);
+}
+</script>
+{% endblock %} 

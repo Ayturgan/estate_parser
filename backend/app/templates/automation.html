@@ -1,0 +1,607 @@
+{% extends "base.html" %}
+
+{% block title %}Автоматизация{% endblock %}
+
+{% block content %}
+<div id="automation-page">
+<div class="row">
+    <div class="col-12">
+        <h1 class="text-gradient mb-4">
+            <i class="bi bi-robot"></i> Автоматизация
+        </h1>
+        <p class="text-muted mb-4">Управление автоматическим пайплайном обработки данных</p>
+    </div>
+</div>
+
+<!-- Статус пайплайна -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0"><i class="bi bi-gear"></i> Статус пайплайна</h5>
+            </div>
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap">
+                    <div>
+                        <span id="pipeline-status" class="badge bg-success pulse">
+                            <i class="bi bi-circle-fill"></i> Готов
+                        </span>
+                    </div>
+                    <div class="d-flex gap-2 flex-wrap">
+                        <button id="start-btn" class="btn btn-gradient">
+                            <i class="bi bi-play-fill"></i> Запустить пайплайн
+                        </button>
+                        <button id="stop-btn" class="btn btn-danger" disabled>
+                            <i class="bi bi-stop-fill"></i> Остановить
+                        </button>
+                        <button id="refresh-btn" class="btn btn-secondary">
+                            <i class="bi bi-arrow-clockwise"></i> Обновить
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Текущий этап -->
+                <div id="current-stage" style="display: none;" class="mb-3">
+                    <h6>Текущий этап: <span id="current-stage-name" class="text-primary"></span></h6>
+                    <div id="current-stage-details" class="small text-muted"></div>
+                </div>
+                
+                <!-- Время выполнения -->
+                <div class="row">
+                    <div class="col-md-4 mb-2">
+                        <div class="text-center p-3 bg-light rounded">
+                            <small class="text-muted d-block">Последний запуск</small>
+                            <strong id="last-run-start">—</strong>
+                        </div>
+                    </div>
+                    <div class="col-md-4 mb-2">
+                        <div class="text-center p-3 bg-light rounded">
+                            <small class="text-muted d-block">Завершен</small>
+                            <strong id="last-run-end">—</strong>
+                        </div>
+                    </div>
+                    <div class="col-md-4 mb-2">
+                        <div class="text-center p-3 bg-light rounded">
+                            <small class="text-muted d-block">Следующий запуск</small>
+                            <strong id="next-run">—</strong>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Мониторинг парсинга источников -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0"><i class="bi bi-download"></i> Мониторинг парсинга источников</h5>
+            </div>
+            <div class="card-body">
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle"></i> Отображение прогресса парсинга по каждому источнику
+                </div>
+                
+                <div id="scraping-sources" class="row">
+                    <!-- Источники будут добавлены динамически -->
+                    <div class="col-12 text-center">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Загрузка источников...</span>
+                        </div>
+                        <p class="text-muted mt-2">Загрузка источников парсинга...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Конфигурация системы -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0"><i class="bi bi-gear-fill"></i> Конфигурация системы</h5>
+            </div>
+            <div class="card-body">
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle"></i> Настройки загружены из базы данных и управляются через <a href="/settings" class="alert-link">страницу настроек</a>
+                </div>
+                
+                <div class="row mb-3">
+                    <div class="col-md-4 mb-3">
+                        <div class="card bg-light">
+                            <div class="card-body text-center">
+                                <h6 class="card-title">Автоматический режим</h6>
+                                <span id="config-auto-mode" class="badge {% if automation_config.is_auto_mode %}bg-success{% else %}bg-danger{% endif %}">
+                            {% if automation_config.is_auto_mode %}
+                                <i class="bi bi-check-circle"></i> Включен
+                            {% else %}
+                                <i class="bi bi-x-circle"></i> Отключен
+                            {% endif %}
+                        </span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <div class="card bg-light">
+                            <div class="card-body text-center">
+                                <h6 class="card-title">Интервал запуска</h6>
+                                <span id="config-interval" class="badge bg-primary">
+                            <i class="bi bi-clock"></i> 
+                            {% if automation_config.interval_minutes < 60 %}
+                                {{ automation_config.interval_minutes }} мин.
+                            {% else %}
+                                {{ automation_config.interval_hours }} час.
+                            {% endif %}
+                        </span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <div class="card bg-light">
+                            <div class="card-body text-center">
+                                <h6 class="card-title">Источники парсинга</h6>
+                                <span id="config-sources" class="badge bg-info">
+                            <i class="bi bi-list"></i> {{ automation_config.scraping_sources | join(', ') }}
+                        </span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <h6>Включенные этапы:</h6>
+                <div id="config-stages" class="d-flex flex-wrap gap-2">
+                    {% set stage_names = {
+                        'scraping': 'Парсинг',
+                        'photo_processing': 'Фото',
+                        'duplicate_processing': 'Дубликаты',
+                        'realtor_detection': 'Риэлторы',
+                        'elasticsearch_reindex': 'Поиск'
+                    } %}
+                    {% for stage_key, enabled in automation_config.enabled_stages.items() %}
+                        <span class="badge {% if enabled %}bg-success{% else %}bg-secondary{% endif %} me-1">
+                            <i class="bi {% if enabled %}bi-check-circle{% else %}bi-x-circle{% endif %}"></i>
+                            {{ stage_names[stage_key] or stage_key }}
+                        </span>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="/static/js/automation.js?v=3.6"></script>
+
+<script>
+// Инициализация real-time обновлений для раздела автоматизации
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('🚀 Страница автоматизации загружена');
+    console.log('📋 Начальные данные конфигурации загружены из шаблона');
+    
+    // Инициализируем AutomationManager
+    console.log('🔍 Проверяем AutomationManager:', window.automationManager);
+    console.log('🔍 Проверяем элемент scraping-sources:', document.getElementById('scraping-sources'));
+    
+    if (window.automationManager) {
+        console.log('🔧 AutomationManager уже инициализирован');
+        // Загружаем источники парсинга
+        window.automationManager.loadScrapingSources();
+    } else {
+        console.log('⏳ Ждем инициализации AutomationManager...');
+        let attempts = 0;
+        const maxAttempts = 10;
+        
+        const checkAutomationManager = () => {
+            attempts++;
+            console.log(`🔍 Попытка ${attempts}/${maxAttempts}: AutomationManager =`, window.automationManager);
+            
+            if (window.automationManager) {
+                console.log('✅ AutomationManager найден, загружаем источники...');
+                window.automationManager.loadScrapingSources();
+            } else if (attempts < maxAttempts) {
+                console.log('⏳ AutomationManager еще не готов, ждем...');
+                setTimeout(checkAutomationManager, 500);
+            } else {
+                console.error('❌ AutomationManager не найден после всех попыток');
+                // Показываем ошибку пользователю
+                const container = document.getElementById('scraping-sources');
+                if (container) {
+                    container.innerHTML = `
+                        <div class="col-12 text-center">
+                            <div class="alert alert-danger">
+                                <i class="bi bi-exclamation-triangle"></i>
+                                Ошибка инициализации AutomationManager
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    console.error('❌ Элемент scraping-sources не найден в DOM');
+                }
+            }
+        };
+        
+        setTimeout(checkAutomationManager, 1000);
+    }
+    
+    // Настраиваем обработчики WebSocket событий
+    if (window.realtimeClient) {
+        console.log('📡 WebSocket клиент найден, настраиваем обработчики для раздела автоматизации...');
+        
+        // Обработчик статуса автоматизации
+        window.realtimeClient.on('automation_status', function(data) {
+            console.log('🤖 Статус автоматизации получен:', data);
+            updateAutomationStatus(data);
+        });
+        
+        // Обработчик прогресса парсинга
+        window.realtimeClient.on('scraping_progress', function(data) {
+            console.log('📈 Прогресс парсинга:', data);
+            updateScrapingProgress(data);
+        });
+        
+        // Обработчик обновления источников парсинга
+        window.realtimeClient.on('scraping_sources_update', function(data) {
+            console.log('🔄 Обновление источников парсинга:', data);
+            if (window.automationManager) {
+                window.automationManager.updateScrapingSources(data.jobs || [], data.sources || []);
+            }
+        });
+        
+        // Обработчик прогресса дедупликации
+        window.realtimeClient.on('duplicate_processing_progress', function(data) {
+            console.log('🔄 Прогресс дедупликации:', data);
+            updateDuplicateProcessingProgress(data);
+        });
+        
+        // Обработчик обновления статистики пайплайна
+        window.realtimeClient.on('pipeline_stats', function(data) {
+            console.log('📊 Статистика пайплайна:', data);
+            updatePipelineStats(data);
+        });
+        
+        // Обработчик событий пайплайна
+        window.realtimeClient.on('pipeline_started', function(data) {
+            console.log('🚀 Пайплайн начат:', data);
+            updatePipelineStatus('running', 'Пайплайн запущен');
+        });
+        
+        window.realtimeClient.on('pipeline_completed', function(data) {
+            console.log('✅ Пайплайн завершен:', data);
+            updatePipelineStatus('completed', 'Пайплайн завершен');
+        });
+        
+        window.realtimeClient.on('pipeline_error', function(data) {
+            console.log('❌ Ошибка пайплайна:', data);
+            updatePipelineStatus('error', 'Ошибка пайплайна');
+        });
+        
+        // Обработчик подключения WebSocket
+        window.realtimeClient.on('connected', function(data) {
+            console.log('🔗 WebSocket подключен на странице автоматизации');
+            // Статус автоматизации будет запрошен автоматически в WebSocket клиенте
+        });
+    } else {
+        console.log('⚠️ WebSocket клиент не найден на странице автоматизации');
+    }
+});
+
+// Функции для обновления UI автоматизации
+function updateAutomationStatus(data) {
+    console.log('🔄 Обновляем статус автоматизации:', data);
+    
+    const statusElement = document.getElementById('pipeline-status');
+    if (statusElement) {
+        const status = data.pipeline_status || data.status;
+        const statusText = getStatusText(status);
+        statusElement.className = `badge ${getStatusBadgeClass(status)} pulse`;
+        statusElement.innerHTML = `<i class="bi ${getStatusIcon(status)}"></i> ${statusText}`;
+    }
+    
+    // Обновляем статистику пайплайна
+    if (data.stats) {
+        updatePipelineStats(data.stats);
+    }
+    
+    // Обновляем конфигурацию
+    updateConfigInfo(data);
+    
+    // Обновляем временную информацию
+    updateTimeInfo(data);
+    
+    // Обновляем текущий этап
+    updateCurrentStage(data);
+}
+
+function getStatusText(status) {
+    const statusMap = {
+        'idle': 'Готов',
+        'running': 'Выполняется',
+        'completed': 'Завершен',
+        'error': 'Ошибка',
+        'paused': 'Приостановлен'
+    };
+    return statusMap[status] || status;
+}
+
+function getStatusIcon(status) {
+    const iconMap = {
+        'idle': 'bi-circle-fill',
+        'running': 'bi-arrow-clockwise',
+        'completed': 'bi-check-circle-fill',
+        'error': 'bi-exclamation-triangle-fill',
+        'paused': 'bi-pause-circle-fill'
+    };
+    return iconMap[status] || 'bi-question-circle-fill';
+}
+
+function updateConfigInfo(data) {
+    // Обновляем информацию о конфигурации только если данные получены через WebSocket
+    const autoModeElement = document.getElementById('config-auto-mode');
+    const intervalElement = document.getElementById('config-interval');
+    const sourcesElement = document.getElementById('config-sources');
+    const stagesElement = document.getElementById('config-stages');
+    
+    if (autoModeElement && data.is_auto_mode !== undefined) {
+        autoModeElement.className = data.is_auto_mode ? 'badge bg-success' : 'badge bg-danger';
+        autoModeElement.innerHTML = data.is_auto_mode ? '<i class="bi bi-check-circle"></i> Включен' : '<i class="bi bi-x-circle"></i> Отключен';
+    }
+    
+    if (intervalElement && (data.interval_minutes !== undefined || data.interval_hours !== undefined)) {
+        intervalElement.className = 'badge bg-primary';
+        if (data.interval_minutes && data.interval_minutes < 60) {
+            intervalElement.innerHTML = `<i class="bi bi-clock"></i> ${data.interval_minutes} мин.`;
+        } else {
+            intervalElement.innerHTML = `<i class="bi bi-clock"></i> ${data.interval_hours} час.`;
+        }
+    }
+    
+    if (sourcesElement && data.scraping_sources) {
+        sourcesElement.className = 'badge bg-info';
+        const sourcesText = data.scraping_sources.join(', ');
+        sourcesElement.innerHTML = `<i class="bi bi-list"></i> ${sourcesText}`;
+    }
+    
+    if (stagesElement && data.enabled_stages) {
+        stagesElement.innerHTML = '';
+        const stageNames = {
+            'scraping': 'Парсинг',
+            'photo_processing': 'Фото',
+            'duplicate_processing': 'Дубликаты',
+            'realtor_detection': 'Риэлторы',
+            'elasticsearch_reindex': 'Поиск'
+        };
+        
+        Object.entries(data.enabled_stages).forEach(([stageKey, enabled]) => {
+            const stageBadge = document.createElement('span');
+            stageBadge.className = `badge ${enabled ? 'bg-success' : 'bg-secondary'} me-1`;
+            stageBadge.innerHTML = `
+                <i class="bi ${enabled ? 'bi-check-circle' : 'bi-x-circle'}"></i>
+                ${stageNames[stageKey] || stageKey}
+            `;
+            stagesElement.appendChild(stageBadge);
+        });
+    }
+}
+
+function updateTimeInfo(data) {
+    // Обновляем информацию о времени
+    const lastRunStartElement = document.getElementById('last-run-start');
+    const lastRunEndElement = document.getElementById('last-run-end');
+    const nextRunElement = document.getElementById('next-run');
+    
+    if (lastRunStartElement && data.last_run_start) {
+        lastRunStartElement.textContent = formatDateTime(data.last_run_start);
+    }
+    
+    if (lastRunEndElement && data.last_run_end) {
+        lastRunEndElement.textContent = formatDateTime(data.last_run_end);
+    }
+    
+    if (nextRunElement && data.next_run_scheduled) {
+        nextRunElement.textContent = formatDateTime(data.next_run_scheduled);
+    }
+}
+
+function updateCurrentStage(data) {
+    const currentStageDiv = document.getElementById('current-stage');
+    const currentStageNameElement = document.getElementById('current-stage-name');
+    const currentProgressElement = document.getElementById('current-progress');
+    const currentStageDetailsElement = document.getElementById('current-stage-details');
+    
+    if (data.current_stage && data.stage_details) {
+        const stageDetails = data.stage_details[data.current_stage];
+        if (stageDetails) {
+            currentStageDiv.style.display = 'block';
+            currentStageNameElement.textContent = stageDetails.name || data.current_stage;
+            
+            if (stageDetails.progress) {
+                const progress = stageDetails.progress;
+                const total = progress.total || progress.processed || 0;
+                const completed = progress.completed || progress.processed || 0;
+                const percentage = total > 0 ? (completed / total) * 100 : 0;
+                
+                currentProgressElement.style.width = `${percentage}%`;
+                currentProgressElement.setAttribute('aria-valuenow', percentage);
+                
+                currentStageDetailsElement.textContent = `Обработано: ${completed} из ${total}`;
+            }
+        }
+    } else {
+        currentStageDiv.style.display = 'none';
+    }
+}
+
+function formatDateTime(dateString) {
+    if (!dateString) return '—';
+    try {
+        const date = new Date(dateString);
+        return date.toLocaleString('ru-RU');
+    } catch (e) {
+        return '—';
+    }
+}
+
+function updateScrapingProgress(data) {
+    const progressElement = document.getElementById('current-progress');
+    if (progressElement && data.progress !== undefined) {
+        progressElement.style.width = `${data.progress}%`;
+        progressElement.setAttribute('aria-valuenow', data.progress);
+    }
+    
+    const stageElement = document.getElementById('current-stage-name');
+    if (stageElement) {
+        stageElement.textContent = data.source || 'Парсинг';
+    }
+    
+    const detailsElement = document.getElementById('current-stage-details');
+    if (detailsElement) {
+        detailsElement.textContent = data.details || `Обработано: ${data.processed || 0}`;
+    }
+    
+    // Показываем блок текущего этапа
+    const currentStageDiv = document.getElementById('current-stage');
+    if (currentStageDiv) {
+        currentStageDiv.style.display = 'block';
+    }
+}
+
+function updateDuplicateProcessingProgress(data) {
+    const progressElement = document.getElementById('current-progress');
+    if (progressElement && data.progress !== undefined) {
+        progressElement.style.width = `${data.progress}%`;
+        progressElement.setAttribute('aria-valuenow', data.progress);
+    }
+    
+    const stageElement = document.getElementById('current-stage-name');
+    if (stageElement) {
+        stageElement.textContent = 'Поиск дубликатов';
+    }
+    
+    const detailsElement = document.getElementById('current-stage-details');
+    if (detailsElement) {
+        detailsElement.textContent = `Обработано: ${data.processed || 0}, найдено дубликатов: ${data.duplicates_found || 0}`;
+    }
+}
+
+function updatePipelineStats(data) {
+    console.log('📊 Обновляем статистику пайплайна:', data);
+    
+    if (data.new_ads !== undefined) {
+        const element = document.getElementById('stat-new-ads');
+        if (element) element.textContent = data.new_ads;
+    }
+    
+    if (data.processed_ads !== undefined) {
+        const element = document.getElementById('stat-processed-ads');
+        if (element) element.textContent = data.processed_ads;
+    }
+    
+    if (data.duplicates_found !== undefined) {
+        const element = document.getElementById('stat-duplicates');
+        if (element) element.textContent = data.duplicates_found;
+    }
+    
+    if (data.realtors_found !== undefined) {
+        const element = document.getElementById('stat-realtors');
+        if (element) element.textContent = data.realtors_found;
+    }
+}
+
+function updatePipelineStatus(status, text) {
+    const statusElement = document.getElementById('pipeline-status');
+    if (statusElement) {
+        statusElement.className = `badge ${getStatusBadgeClass(status)} pulse`;
+        statusElement.innerHTML = `<i class="bi bi-circle-fill"></i> ${text}`;
+    }
+}
+
+function getStatusBadgeClass(status) {
+    switch (status) {
+        case 'running': return 'bg-primary';
+        case 'completed': return 'bg-success';
+        case 'error': return 'bg-danger';
+        case 'warning': return 'bg-warning';
+        default: return 'bg-secondary';
+    }
+}
+</script>
+
+<!-- Модальное окно для логов -->
+<div class="modal fade" id="logsModal" tabindex="-1" aria-labelledby="logsModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="logsModalLabel">
+                    <i class="bi bi-file-text"></i> Логи парсинга
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div id="logsModalBody" class="logs-container">
+                    <!-- Логи будут загружены динамически -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.logs-container {
+    max-height: 400px;
+    overflow-y: auto;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    background-color: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    padding: 10px;
+}
+
+.log-entry {
+    margin-bottom: 5px;
+    padding: 2px 0;
+    border-bottom: 1px solid #e9ecef;
+}
+
+.log-entry:last-child {
+    border-bottom: none;
+}
+
+.log-timestamp {
+    color: #6c757d;
+    font-size: 11px;
+}
+
+.log-level {
+    font-weight: bold;
+    margin: 0 5px;
+}
+
+.log-level.log-info {
+    color: #0d6efd;
+}
+
+.log-level.log-warning {
+    color: #ffc107;
+}
+
+.log-level.log-error {
+    color: #dc3545;
+}
+
+.log-level.log-debug {
+    color: #6c757d;
+}
+
+.log-message {
+    color: #212529;
+}
+</style>
+</div>
+{% endblock %} 

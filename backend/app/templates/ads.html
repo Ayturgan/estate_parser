@@ -1,0 +1,407 @@
+{% extends "base.html" %}
+
+{% block title %}Объявления{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col-12">
+            <h1>
+                <i class="bi bi-card-list"></i> Объявления 
+                <span id="total-info">({{ total }} найдено)</span>
+                {% if current_filters.query %}
+                    <span class="badge bg-primary ms-2">
+                        <i class="bi bi-search"></i> "{{ current_filters.query }}"
+                    </span>
+                {% endif %}
+            </h1>
+        </div>
+    </div>
+
+    <!-- Фильтры -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-funnel"></i> Фильтры</h5>
+                </div>
+                <div class="card-body">
+                    <form id="filters-form">
+                        <!-- Поле поиска -->
+                        <div class="row mb-3">
+                            <div class="col-12">
+                                <label class="form-label">Поиск по объявлениям</label>
+                                <div class="input-group">
+                                    <span class="input-group-text"><i class="bi bi-search"></i></span>
+                                    <input type="text" class="form-control" name="query" 
+                                           placeholder="Введите ключевые слова для поиска..." 
+                                           value="{{ current_filters.query or '' }}"
+                                           onkeypress="if(event.key==='Enter') applyFiltersWithHistory()">
+                                    <button type="button" class="btn btn-outline-secondary" onclick="clearSearch()">
+                                        <i class="bi bi-x"></i>
+                                    </button>
+                                </div>
+                                <div class="form-text">
+                                    Поиск по заголовку, описанию, адресу объявления
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="row">
+                            <div class="col-md-2 mb-3">
+                                <label class="form-label">Город</label>
+                                <select class="form-select" name="city">
+                                    <option value="">Все города</option>
+                                    {% for city in cities %}
+                                        <option value="{{ city }}" {% if current_filters.city == city %}selected{% endif %}>{{ city }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-md-2 mb-3">
+                                <label class="form-label">Район</label>
+                                <select class="form-select" name="district">
+                                    <option value="">Все районы</option>
+                                    {% for district in districts %}
+                                        <option value="{{ district }}" {% if current_filters.district == district %}selected{% endif %}>{{ district }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-md-2 mb-3">
+                                <label class="form-label">Тип недвижимости</label>
+                                <select class="form-select" name="property_type">
+                                    <option value="">Любой</option>
+                                    {% for pt in property_types %}
+                                        <option value="{{ pt }}" {% if current_filters.property_type == pt %}selected{% endif %}>{{ pt }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-md-2 mb-3">
+                                <label class="form-label">Тип сделки</label>
+                                <select class="form-select" name="listing_type">
+                                    <option value="">Любая</option>
+                                    {% for lt in listing_types %}
+                                        <option value="{{ lt }}" {% if current_filters.listing_type == lt %}selected{% endif %}>{{ lt }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-md-2 mb-3">
+                                <label class="form-label">Цена от</label>
+                                <input type="number" class="form-control" name="min_price" placeholder="Цена" value="{{ current_filters.min_price or '' }}">
+                            </div>
+                            <div class="col-md-2 mb-3">
+                                <label class="form-label">Цена до</label>
+                                <input type="number" class="form-control" name="max_price" placeholder="Цена" value="{{ current_filters.max_price or '' }}">
+                            </div>
+                            </div>
+                            
+                        <div class="row">
+                            <div class="col-md-2 mb-3">
+                                <label class="form-label">Площадь от</label>
+                                <input type="number" class="form-control" name="min_area" placeholder="м²" value="{{ current_filters.min_area or '' }}">
+                            </div>
+                            
+                            <div class="col-md-2 mb-3">
+                                <label class="form-label">Площадь до</label>
+                                <input type="number" class="form-control" name="max_area" placeholder="м²" value="{{ current_filters.max_area or '' }}">
+                            </div>
+                        </div>
+                        
+                        <div class="row">
+                            <div class="col-md-2 mb-3">
+                                <label class="form-label">Источник</label>
+                                <select class="form-select" name="source_name">
+                                    <option value="">Все источники</option>
+                                    {% for src in sources %}
+                                        <option value="{{ src }}" {% if current_filters.source_name == src %}selected{% endif %}>{{ src }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-md-2 mb-3">
+                                <label class="form-label">Комнаты</label>
+                                <select class="form-select" name="rooms">
+                                    <option value="">Любое</option>
+                                    <option value="1" {% if current_filters.rooms == 1 %}selected{% endif %}>1</option>
+                                    <option value="2" {% if current_filters.rooms == 2 %}selected{% endif %}>2</option>
+                                    <option value="3" {% if current_filters.rooms == 3 %}selected{% endif %}>3</option>
+                                    <option value="4" {% if current_filters.rooms == 4 %}selected{% endif %}>4+</option>
+                                </select>
+                            </div>
+                            
+                            <div class="col-md-2 mb-3">
+                                <label class="form-label">Риэлтор</label>
+                                <select class="form-select" name="is_realtor">
+                                    <option value="">Все</option>
+                                    <option value="true" {% if current_filters.is_realtor %}selected{% endif %}>Да</option>
+                                    <option value="false" {% if current_filters.is_realtor == false %}selected{% endif %}>Нет</option>
+                                </select>
+                            </div>
+                            
+                            <div class="col-md-2 mb-3">
+                                <label class="form-label">Дубликаты</label>
+                                <select class="form-select" name="has_duplicates">
+                                    <option value="">Все</option>
+                                    <option value="true" {% if current_filters.has_duplicates %}selected{% endif %}>Есть</option>
+                                    <option value="false" {% if current_filters.has_duplicates == false %}selected{% endif %}>Нет</option>
+                                </select>
+                            </div>
+                            
+                        </div>
+                        
+                        <div class="row">
+                            <div class="col-12">
+                                <button type="button" class="btn btn-primary me-2" onclick="applyFiltersWithHistory()">
+                                    <i class="bi bi-search"></i> Применить фильтры
+                                </button>
+                                <button type="button" class="btn btn-outline-secondary me-2" onclick="clearFilters()">
+                                    <i class="bi bi-x-circle"></i> Очистить все
+                                </button>
+                                {% if current_filters.query or current_filters.city or current_filters.district or current_filters.min_price or current_filters.max_price %}
+                                <span class="badge bg-info">
+                                    <i class="bi bi-funnel-fill"></i> Активные фильтры
+                                </span>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Объявления -->
+    <div class="row" id="ads-container">
+        {% if ads %}
+            {% for ad in ads %}
+            <div class="col-lg-4 col-md-6 mb-4">
+                <div class="card ad-card h-100">
+                    <div class="position-relative">
+                        {% if ad.photos and ad.photos|length > 0 %}
+                            <img src="{{ ad.photos[0].url }}" class="ad-image" alt="Фото объявления">
+                        {% else %}
+                            <div class="ad-image bg-light d-flex align-items-center justify-content-center">
+                                <i class="bi bi-image text-muted" style="font-size: 3rem;"></i>
+                            </div>
+                        {% endif %}
+                        
+                        {% if ad.duplicates_count > 0 %}
+                            <span class="badge bg-warning duplicate-badge">{{ ad.duplicates_count }} дубл.</span>
+                        {% endif %}
+                        
+                        {% if ad.realtor_id or ad.realtor %}
+                            <span class="badge bg-info position-absolute" style="top: 10px; left: 10px;">Риэлтор</span>
+                        {% endif %}
+                    </div>
+                    
+                    <div class="card-body d-flex flex-column">
+                        <h6 class="card-title">{{ ad.title[:60] }}{% if ad.title|length > 60 %}...{% endif %}</h6>
+                        
+                        {% if ad.price %}
+                            <div class="ad-price mb-2">
+                                {% if ad.currency == 'USD' %}${{ "{:,.0f}".format(ad.price) }}
+                                {% elif ad.currency == 'SOM' %}{{ "{:,.0f}".format(ad.price) }} сом
+                                {% elif ad.currency == 'EUR' %}€{{ "{:,.0f}".format(ad.price) }}
+                                {% else %}{{ "{:,.0f}".format(ad.price) }} {{ ad.currency or '' }}
+                                {% endif %}
+                            </div>
+                        {% else %}
+                            <div class="ad-price mb-2 text-muted">Цена не указана</div>
+                        {% endif %}
+                        
+                        <div class="ad-meta mb-3">
+                            {% if ad.area_sqm %}{{ ad.area_sqm }} м² • {% endif %}
+                            {% if ad.rooms %}{{ ad.rooms }} комн. • {% endif %}
+                            {% if ad.floor %}{{ ad.floor }} этаж{% endif %}
+                            {% if ad.location %}
+                                <br><i class="bi bi-geo-alt"></i> {{ ad.location.city }}{% if ad.location.district %}, {{ ad.location.district }}{% endif %}
+                            {% endif %}
+                        </div>
+                        
+                        <div class="mt-auto">
+                            <a href="/ad/{{ ad.id }}" class="btn btn-primary btn-sm">
+                                <i class="bi bi-eye"></i> Подробнее
+                            </a>
+                            {% if ad.realtor_id %}
+                                <a href="/realtor/{{ ad.realtor_id }}" class="btn btn-outline-info btn-sm ms-1">
+                                    <i class="bi bi-person"></i> Риэлтор
+                                </a>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        {% else %}
+            <div class="col-12">
+                <div class="text-center text-muted py-5">
+                    <i class="bi bi-search display-4 d-block mb-3"></i>
+                    <h4>Объявления не найдены</h4>
+                    <p>Попробуйте изменить фильтры поиска</p>
+                </div>
+            </div>
+        {% endif %}
+    </div>
+
+    <!-- Пагинация -->
+    <div id="pagination">
+        {% if total > limit %}
+        <div class="row mt-4">
+            <div class="col-12 d-flex justify-content-center">
+                <nav>
+                    <ul class="pagination">
+                        {% set current_page = (offset // limit) + 1 %}
+                        {% set total_pages = (total + limit - 1) // limit %}
+                        
+                        <!-- Предыдущая страница -->
+                        {% if current_page > 1 %}
+                            <li class="page-item">
+                                <a class="page-link" href="?{{ request.query_string.decode().replace('offset=' + offset|string, 'offset=' + ((current_page - 2) * limit)|string) if 'offset=' in request.query_string.decode() else request.query_string.decode() + ('&' if request.query_string else '') + 'offset=' + ((current_page - 2) * limit)|string }}">
+                                    <i class="bi bi-chevron-left"></i>
+                                </a>
+                            </li>
+                        {% endif %}
+                        
+                        <!-- Номера страниц -->
+                        {% for page_num in range(1, total_pages + 1) %}
+                            {% if page_num == current_page %}
+                                <li class="page-item active">
+                                    <span class="page-link">{{ page_num }}</span>
+                                </li>
+                            {% elif page_num <= 3 or page_num > total_pages - 3 or (page_num >= current_page - 2 and page_num <= current_page + 2) %}
+                                <li class="page-item">
+                                    <a class="page-link" href="?{{ request.query_string.decode().replace('offset=' + offset|string, 'offset=' + ((page_num - 1) * limit)|string) if 'offset=' in request.query_string.decode() else request.query_string.decode() + ('&' if request.query_string else '') + 'offset=' + ((page_num - 1) * limit)|string }}">
+                                        {{ page_num }}
+                                    </a>
+                                </li>
+                            {% elif page_num == 4 and current_page > 6 %}
+                                <li class="page-item disabled">
+                                    <span class="page-link">...</span>
+                                </li>
+                            {% elif page_num == total_pages - 3 and current_page < total_pages - 5 %}
+                                <li class="page-item disabled">
+                                    <span class="page-link">...</span>
+                                </li>
+                            {% endif %}
+                        {% endfor %}
+                        
+                        <!-- Следующая страница -->
+                        {% if current_page < total_pages %}
+                            <li class="page-item">
+                                <a class="page-link" href="?{{ request.query_string.decode().replace('offset=' + offset|string, 'offset=' + (current_page * limit)|string) if 'offset=' in request.query_string.decode() else request.query_string.decode() + ('&' if request.query_string else '') + 'offset=' + (current_page * limit)|string }}">
+                                    <i class="bi bi-chevron-right"></i>
+                                </a>
+                            </li>
+                        {% endif %}
+                    </ul>
+                </nav>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Модальные окна удалены - теперь используются отдельные страницы -->
+
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/utils.js?v=2.1"></script>
+<script>
+// Функции для работы с фильтрами
+function applyFilters() {
+    const form = document.getElementById('filters-form');
+    const formData = new FormData(form);
+    const params = new URLSearchParams();
+    
+    for (let [key, value] of formData.entries()) {
+        if (value.trim() !== '') {
+            params.append(key, value);
+        }
+    }
+    
+    window.location.href = '/ads?' + params.toString();
+}
+
+function clearFilters() {
+    window.location.href = '/ads';
+}
+
+// Инициализация real-time обновлений для раздела объявлений
+document.addEventListener('DOMContentLoaded', function() {
+    // Настраиваем обработчики WebSocket событий
+    if (window.realtimeClient) {
+        console.log('📡 WebSocket клиент найден, настраиваем обработчики для раздела объявлений...');
+        
+        // Обработчик новых объявлений
+        window.realtimeClient.on('new_ad_created', function(data) {
+            console.log('🏠 Новое объявление:', data);
+            
+            // Обновляем счетчик объявлений
+            const totalInfo = document.getElementById('total-info');
+            if (totalInfo) {
+                const currentText = totalInfo.textContent;
+                const match = currentText.match(/\((\d+) найдено\)/);
+                if (match) {
+                    const currentCount = parseInt(match[1]) + 1;
+                    totalInfo.textContent = `(${currentCount} найдено)`;
+                    
+                    // Анимация обновления
+                    totalInfo.style.animation = 'pulse 0.5s ease-in-out';
+                    setTimeout(() => {
+                        totalInfo.style.animation = '';
+                    }, 500);
+                }
+            }
+            
+            // Показываем уведомление
+            if (window.showNotification) {
+                window.showNotification('info', 
+                    `Новое объявление: ${data.title ? data.title.substring(0, 50) + '...' : 'Объявление'}`);
+            }
+        });
+        
+        // Обработчик обновления статистики
+        window.realtimeClient.on('stats_update', function(data) {
+            console.log('📊 Обновление статистики в разделе объявлений:', data);
+            
+            // Обновляем общий счетчик если нужно
+            if (data.total_ads !== undefined) {
+                const totalInfo = document.getElementById('total-info');
+                if (totalInfo) {
+                    totalInfo.textContent = `(${data.total_ads} найдено)`;
+                }
+            }
+        });
+        
+        // Обработчик парсинга
+        window.realtimeClient.on('scraping_started', function(data) {
+            console.log('🚀 Парсинг начат:', data);
+            
+            // Показываем уведомление
+            if (window.showNotification) {
+                window.showNotification('info', `Парсинг начат: ${data.source || 'Неизвестен'}`);
+            }
+        });
+        
+        // Обработчик завершения парсинга
+        window.realtimeClient.on('scraping_completed', function(data) {
+            console.log('✅ Парсинг завершен:', data);
+            
+            // Показываем уведомление
+            if (window.showNotification) {
+                window.showNotification('success', 
+                    `Парсинг завершен! Обработано: ${data.total_processed || 0} объявлений`);
+            }
+            
+            // Предлагаем обновить страницу
+            setTimeout(() => {
+                if (confirm('Парсинг завершен! Обновить страницу для просмотра новых объявлений?')) {
+                    window.location.reload();
+                }
+            }, 2000);
+        });
+    } else {
+        console.log('⚠️ WebSocket клиент не найден на странице объявлений');
+    }
+});
+</script>
+{% endblock %} 

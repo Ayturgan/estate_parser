@@ -1,0 +1,57 @@
+name: "Agency"
+source_name: "agency.kg"
+spider_type: "html"
+parse_all_listings: false
+max_items_limit: 100
+
+base_url: "https://www.agency.kg/"
+
+# URL страницы для парсинга
+start_url: "/"   # URL страницы с объявлениями
+
+# Настройки кнопки "Показать еще"
+show_more_settings:
+  enabled: true
+  button_selector: ".show-more"  # CSS селектор кнопки
+  button_text: "Показать еще"          # Текст кнопки (опционально)
+  max_clicks: 5                        # Максимум кликов
+  wait_time: 3                         # Время ожидания после клика
+  scroll_before_click: true            # Прокрутить к кнопке
+
+# Селекторы для парсинга
+selectors:
+  ads_list: ".items-grid"      # Контейнер со всеми объявлениями
+  ad_card: ".items-grid__item"            # Карточка одного объявления
+  
+  title: ".property-title::text"             # Заголовок
+  url: ".property-title::attr(href)"         # Ссылка на объявление
+  price: ".property-price ::text"              # Цена
+  location: ".map::text"                       # Местоположение
+  property_type: ".property-type::text"        # Тип недвижимости (Квартира, Дом и т.д.)
+  listing_type: ".property-status::text"       # Тип сделки (Продаётся, Сдаётся и т.д.)
+
+  # Детальная информация (опционально)
+  details:
+    # XPath селекторы для извлечения данных из списка
+    rooms: "xpath://li[contains(., 'Комнат')]//span/text()"
+    area: "xpath://li[contains(., 'Площадь')]//span/text()"
+    floor: "xpath://li[contains(., 'Этаж')]//span/text()"
+    images: ".grid-item a::attr(href)"                        # Все изображения из галереи
+    description: ".property-description .description::text"   # Описание
+    phone: ".agent__phone span::text"    # Номер телефона
+
+
+
+# Настройки запросов
+request_settings:
+  delay: 2
+  timeout: 30
+  retries: 3
+  user_agent_rotation: true
+
+# Обработка данных
+data_processing:
+  ai_extraction: true
+  ai_classification: false
+  price_cleaning: true
+  description_cleaning: true 

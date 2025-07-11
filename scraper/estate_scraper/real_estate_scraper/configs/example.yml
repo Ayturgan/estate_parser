@@ -1,0 +1,74 @@
+name: "example"
+source_name: "example.com"
+spider_type: "html"
+parse_all_listings: false
+max_items_limit: 5
+
+base_url: "https://example.com"
+
+# Категории недвижимости с точной классификацией
+categories:
+  # === ПРОДАЖА ===
+  - url: "/buy/apartments"
+    property_type: "Квартира"
+    listing_type: "Продажа"
+    name: "квартиры_продажа"
+    
+  - url: "/buy/houses"
+    property_type: "Дом"
+    listing_type: "Продажа"
+    name: "дома_продажа"
+    
+  - url: "/buy/commercial"
+    property_type: "Коммерческая недвижимость"
+    listing_type: "Продажа"
+    name: "коммерческая_продажа"
+
+  # === АРЕНДА ===
+  - url: "/rent/apartments"
+    property_type: "Квартира"
+    listing_type: "Аренда"
+    name: "квартиры_аренда"
+    
+  - url: "/rent/houses"
+    property_type: "Дом"
+    listing_type: "Аренда"
+    name: "дома_аренда"
+
+# Настройки пагинации
+pagination:
+  start_page: 1
+  page_param: "page"
+  page_url_format: "{base_url}{category_url}?page={page}"
+
+# Селекторы для парсинга
+selectors:
+  ads_list: ".listings-container"
+  ad_card: ".listing-card"
+  
+  title: ".title a::text"
+  url: ".title a::attr(href)"
+  price: ".price::text"
+  location: ".location::text"
+  description: ".description::text"
+  
+  image: ".image img::attr(src)"
+  
+  details:
+    rooms: ".details .rooms::text"
+    area: ".details .area::text"
+    floor: ".details .floor::text"
+
+# Настройки запросов  
+request_settings:
+  delay: 2
+  timeout: 30
+  retries: 3
+  user_agent_rotation: true
+
+# Обработка данных
+data_processing:
+  ai_extraction: true  # ИИ только для извлечения данных (НЕ классификации)
+  ai_classification: false  # Классификация из категорий URL
+  price_cleaning: true
+  description_cleaning: true 

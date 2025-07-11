@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Estate Parser - Управление системой{% endblock %}</title>
+    
+    <!-- Favicon -->
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16x16.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
+    <link rel="manifest" href="/static/manifest.json">
+    
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Bootstrap Icons -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css" rel="stylesheet">
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- HTMX -->
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <!-- Custom CSS -->
+    <link href="/static/css/style.css?v=2.0" rel="stylesheet">
+    
+    <style>
+        html, body {
+            height: 100%;
+        }
+        
+        body {
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+        }
+        
+        main {
+            flex: 1 0 auto;
+        }
+        
+        footer {
+            flex-shrink: 0;
+            margin-top: auto;
+        }
+    </style>
+</head>
+<body data-bs-theme="light">
+    <!-- Navigation -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow-sm">
+        <div class="container-fluid">
+            <a class="navbar-brand fw-bold" href="/">
+                <img src="/static/logo.png" alt="Estate Parser" height="30" class="d-inline-block align-text-top me-2">
+                Estate Parser
+            </a>
+            
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto">
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.url.path == '/' %}active{% endif %}" href="/">
+                            <i class="bi bi-card-list"></i> Объявления
+                        </a>
+                    </li>
+                    
+                    {% if current_admin %}
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.url.path == '/dashboard' %}active{% endif %}" href="/dashboard">
+                            <i class="bi bi-speedometer2"></i> Дашборд
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.url.path == '/automation' %}active{% endif %}" href="/automation">
+                            <i class="bi bi-robot"></i> Автоматизация
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.url.path == '/settings' %}active{% endif %}" href="/settings">
+                            <i class="bi bi-gear"></i> Настройки
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.url.path == '/admin/users' %}active{% endif %}" href="/admin/users">
+                            <i class="bi bi-people"></i> Пользователи
+                        </a>
+                    </li>
+                    {% endif %}
+                </ul>
+                
+                <div class="navbar-nav d-flex flex-row align-items-center">
+                    {% if current_admin %}
+                    <span class="navbar-text me-3">
+                        Привет, {{ current_admin.username }}!
+                    </span>
+                    <span class="navbar-text me-3">
+                        <i class="bi bi-circle-fill" id="status-indicator" title="Статус системы"></i>
+                        <span id="status-text">Проверка...</span>
+                        <span class="realtime-indicator disconnected" id="realtime-indicator" title="Real-time соединение"></span>
+                    </span>
+                    <a class="nav-link" href="/logout">
+                        <i class="bi bi-box-arrow-right"></i> Выход
+                    </a>
+                    {% else %}
+                    <a class="nav-link" href="/login">
+                        <i class="bi bi-box-arrow-in-right"></i> Войти
+                    </a>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="container-fluid py-4">
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-light py-3">
+        <div class="container-fluid text-center text-muted">
+            <small>Estate Parser v1.0.0 &copy; 2025 | Система агрегации недвижимости</small>
+        </div>
+    </footer>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Custom JS (ПЕРВЫМ!) -->
+    <script src="/static/js/main.js?v=2.1"></script>
+    
+    {% if current_admin %}
+    <!-- WebSocket Real-time client -->
+    <script src="/static/js/websocket.js?v=1.5"></script>
+    <script>
+        // Создаем глобальный экземпляр WebSocket клиента
+        window.realtimeClient = new WebSocketClient();
+        console.log('✅ WebSocket клиент создан');
+    </script>
+    {% endif %}
+    
+    {% block scripts %}{% endblock %}
+</body>
+</html> 

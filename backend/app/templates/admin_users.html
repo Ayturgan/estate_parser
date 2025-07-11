@@ -1,0 +1,187 @@
+{% extends "base.html" %}
+
+{% block title %}Управление пользователями - Estate Parser{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">
+                        <i class="bi bi-people me-2"></i>Администраторы системы
+                    </h5>
+                    <span class="badge bg-secondary">{{ admins|length }} пользователей</span>
+                </div>
+                <div class="card-body">
+                    {% if error %}
+                    <div class="alert alert-danger">
+                        <i class="bi bi-exclamation-triangle me-2"></i>{{ error }}
+                    </div>
+                    {% endif %}
+                    
+                    {% if success %}
+                    <div class="alert alert-success">
+                        <i class="bi bi-check-circle me-2"></i>{{ success }}
+                    </div>
+                    {% endif %}
+                    
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Пользователь</th>
+                                    <th>Полное имя</th>
+                                    <th>Создан</th>
+                                    <th>Последний вход</th>
+                                    <th>Статус</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for admin in admins %}
+                                <tr>
+                                    <td>{{ admin.id }}</td>
+                                    <td>
+                                        <strong>{{ admin.username }}</strong>
+                                        {% if admin.id == current_admin.id %}
+                                        <span class="badge bg-primary ms-1">Вы</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ admin.full_name or '—' }}</td>
+                                    <td>{{ admin.created_at.strftime('%d.%m.%Y') }}</td>
+                                    <td>
+                                        {% if admin.last_login_at %}
+                                            {{ admin.last_login_at.strftime('%d.%m.%Y %H:%M') }}
+                                        {% else %}
+                                            <span class="text-muted">Никогда</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if admin.is_active %}
+                                            <span class="badge bg-success">Активен</span>
+                                        {% else %}
+                                            <span class="badge bg-danger">Отключен</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="bi bi-person-plus me-2"></i>Добавить администратора
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <form method="post" action="/admin/users/create">
+                        <div class="mb-3">
+                            <label for="username" class="form-label">Имя пользователя*</label>
+                            <input type="text" class="form-control" id="username" name="username" 
+                                   required placeholder="admin">
+                            <div class="form-text">Только латинские буквы и цифры</div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="password" class="form-label">Пароль*</label>
+                            <input type="password" class="form-control" id="password" name="password" 
+                                   required placeholder="Минимум 6 символов">
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="full_name" class="form-label">Полное имя</label>
+                            <input type="text" class="form-control" id="full_name" name="full_name"
+                                   placeholder="Иван Иванов">
+                        </div>
+                        
+                        <button type="submit" class="btn btn-primary w-100">
+                            <i class="bi bi-plus-circle me-2"></i>Создать администратора
+                        </button>
+                    </form>
+                </div>
+            </div>
+            
+            <div class="card mt-3">
+                <div class="card-header">
+                    <h6 class="mb-0">
+                        <i class="bi bi-info-circle me-2"></i>Быстрые действия
+                    </h6>
+                </div>
+                <div class="card-body">
+                    <div class="d-grid gap-2">
+                        <a href="/" class="btn btn-outline-primary">
+                            <i class="bi bi-card-list me-2"></i>Объявления
+                        </a>
+                        <a href="/dashboard" class="btn btn-outline-secondary">
+                            <i class="bi bi-speedometer2 me-2"></i>Дашборд
+                        </a>
+                        <a href="/automation" class="btn btn-outline-info">
+                            <i class="bi bi-gear me-2"></i>Автоматизация
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Инициализация real-time обновлений для раздела управления пользователями
+document.addEventListener('DOMContentLoaded', function() {
+    // Настраиваем обработчики WebSocket событий
+    if (window.realtimeClient) {
+        console.log('📡 WebSocket клиент найден, настраиваем обработчики для раздела пользователей...');
+        
+        // Обработчик изменений пользователей
+        window.realtimeClient.on('user_created', function(data) {
+            console.log('👤 Пользователь создан:', data);
+            
+            // Показываем уведомление
+            if (window.showNotification) {
+                window.showNotification('success', `Пользователь создан: ${data.username}`);
+            }
+            
+            // Предлагаем обновить страницу
+            setTimeout(() => {
+                if (confirm('Создан новый пользователь! Обновить страницу?')) {
+                    window.location.reload();
+                }
+            }, 1000);
+        });
+        
+        // Обработчик авторизации пользователей
+        window.realtimeClient.on('user_login', function(data) {
+            console.log('🔑 Пользователь авторизован:', data);
+            
+            // Показываем уведомление только если это не текущий пользователь
+            if (data.username !== '{{ current_admin.username }}') {
+                if (window.showNotification) {
+                    window.showNotification('info', `Вход в систему: ${data.username}`);
+                }
+            }
+        });
+        
+        // Обработчик системных событий для администраторов
+        window.realtimeClient.on('system_status', function(data) {
+            console.log('⚙️ Системное событие:', data);
+            
+            // Показываем уведомление
+            if (window.showNotification) {
+                window.showNotification('info', data.message || 'Обновление системы');
+            }
+        });
+    } else {
+        console.log('⚠️ WebSocket клиент не найден на странице управления пользователями');
+    }
+});
+</script>
+{% endblock %} 

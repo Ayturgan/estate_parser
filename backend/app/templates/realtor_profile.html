@@ -1,0 +1,188 @@
+{% extends "base.html" %}
+
+{% block title %}Риэлтор {{ realtor.name or realtor.phone_number }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- Кнопка назад -->
+    <div class="row mb-3">
+        <div class="col-12">
+            <a href="/" class="btn btn-secondary">
+                <i class="bi bi-arrow-left"></i> Назад к объявлениям
+            </a>
+        </div>
+    </div>
+
+    <!-- Профиль риэлтора -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card border-0 shadow-sm">
+                <div class="card-body">
+                    <div class="row align-items-center">
+                        <div class="col-md-8">
+                            <h2 class="mb-0">
+                                <i class="bi bi-person-badge text-primary"></i> 
+                                {% if realtor.name %}
+                                    {{ realtor.name }}
+                                {% else %}
+                                    Риэлтор {{ realtor.phone_number }}
+                                {% endif %}
+                            </h2>
+                        </div>
+                        <div class="col-md-4 text-end">
+                            <div class="d-flex align-items-center justify-content-end">
+                                <div>
+                                    <div class="fw-bold text-primary fs-3">{{ realtor.total_ads_count }}</div>
+                                    <small class="text-muted">Всего объявлений</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Объявления риэлтора -->
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="bi bi-card-list"></i> Объявления 
+                        <span class="badge bg-primary">{{ total_ads }}</span>
+                    </h5>
+                </div>
+                <div class="card-body">
+                    {% if ads %}
+                        <div class="row">
+                            {% for ad in ads %}
+                                <div class="col-lg-4 col-md-6 mb-4">
+                                    <div class="card ad-card h-100">
+                                        <div class="position-relative">
+                                            {% if ad.photos and ad.photos|length > 0 %}
+                                                <img src="{{ ad.photos[0].url }}" class="card-img-top" alt="Фото объявления" 
+                                                     style="height: 200px; object-fit: cover;"
+                                                     onerror="this.src='/static/images/no-photo.jpg'">
+                                            {% else %}
+                                                <div class="card-img-top bg-light d-flex align-items-center justify-content-center" 
+                                                     style="height: 200px;">
+                                                    <i class="bi bi-image text-muted" style="font-size: 3rem;"></i>
+                                                </div>
+                                            {% endif %}
+                                            
+                                            {% if ad.duplicates_count > 0 %}
+                                                <span class="badge bg-warning position-absolute top-0 start-0 m-2">
+                                                    {{ ad.duplicates_count }} дубл.
+                                                </span>
+                                            {% endif %}
+                                        </div>
+                                        
+                                        <div class="card-body d-flex flex-column">
+                                            <h6 class="card-title">
+                                                {{ ad.title[:60] }}{% if ad.title|length > 60 %}...{% endif %}
+                                            </h6>
+                                            
+                                            {% if ad.price %}
+                                                <div class="mb-2">
+                                                    <strong class="text-success">
+                                                        {% if ad.currency == 'USD' %}${{ "{:,.0f}".format(ad.price) }}
+                                                        {% elif ad.currency == 'SOM' %}{{ "{:,.0f}".format(ad.price) }} сом
+                                                        {% elif ad.currency == 'EUR' %}€{{ "{:,.0f}".format(ad.price) }}
+                                                        {% else %}{{ "{:,.0f}".format(ad.price) }} {{ ad.currency or '' }}
+                                                        {% endif %}
+                                                    </strong>
+                                                </div>
+                                            {% endif %}
+                                            
+                                            <div class="text-muted small mb-3">
+                                                {% if ad.area_sqm %}{{ ad.area_sqm }} м² • {% endif %}
+                                                {% if ad.rooms %}{{ ad.rooms }} комн. • {% endif %}
+                                                {% if ad.floor %}{{ ad.floor }} этаж{% endif %}
+                                                {% if ad.location %}
+                                                    <br><i class="bi bi-geo-alt"></i> {{ ad.location.city }}{% if ad.location.district %}, {{ ad.location.district }}{% endif %}
+                                                {% endif %}
+                                            </div>
+                                            
+                                            <div class="mt-auto">
+                                                <a href="/ad/{{ ad.id }}" class="btn btn-primary btn-sm">
+                                                    <i class="bi bi-eye"></i> Подробнее
+                                                </a>
+                                                <small class="text-muted d-block mt-2">
+                                                    {{ ad.created_at.strftime('%d.%m.%Y') if ad.created_at else '' }}
+                                                </small>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            {% endfor %}
+                        </div>
+                        
+                        <!-- Пагинация -->
+                        {% if total_ads > limit %}
+                            <div class="row mt-4">
+                                <div class="col-12 d-flex justify-content-center">
+                                    <nav>
+                                        <ul class="pagination">
+                                            {% set current_page = (offset // limit) + 1 %}
+                                            {% set total_pages = (total_ads + limit - 1) // limit %}
+                                            
+                                            <!-- Предыдущая страница -->
+                                            {% if current_page > 1 %}
+                                                <li class="page-item">
+                                                    <a class="page-link" href="/realtor/{{ realtor.id }}?offset={{ ((current_page - 2) * limit) }}">
+                                                        <i class="bi bi-chevron-left"></i>
+                                                    </a>
+                                                </li>
+                                            {% endif %}
+                                            
+                                            <!-- Номера страниц -->
+                                            {% for page_num in range(1, total_pages + 1) %}
+                                                {% if page_num == current_page %}
+                                                    <li class="page-item active">
+                                                        <span class="page-link">{{ page_num }}</span>
+                                                    </li>
+                                                {% elif page_num <= 3 or page_num > total_pages - 3 or (page_num >= current_page - 2 and page_num <= current_page + 2) %}
+                                                    <li class="page-item">
+                                                        <a class="page-link" href="/realtor/{{ realtor.id }}?offset={{ ((page_num - 1) * limit) }}">
+                                                            {{ page_num }}
+                                                        </a>
+                                                    </li>
+                                                {% elif page_num == 4 and current_page > 6 %}
+                                                    <li class="page-item disabled">
+                                                        <span class="page-link">...</span>
+                                                    </li>
+                                                {% elif page_num == total_pages - 3 and current_page < total_pages - 5 %}
+                                                    <li class="page-item disabled">
+                                                        <span class="page-link">...</span>
+                                                    </li>
+                                                {% endif %}
+                                            {% endfor %}
+                                            
+                                            <!-- Следующая страница -->
+                                            {% if current_page < total_pages %}
+                                                <li class="page-item">
+                                                    <a class="page-link" href="/realtor/{{ realtor.id }}?offset={{ (current_page * limit) }}">
+                                                        <i class="bi bi-chevron-right"></i>
+                                                    </a>
+                                                </li>
+                                            {% endif %}
+                                        </ul>
+                                    </nav>
+                                </div>
+                            </div>
+                        {% endif %}
+                        
+                    {% else %}
+                        <div class="text-center text-muted py-5">
+                            <i class="bi bi-inbox display-4 d-block mb-3"></i>
+                            <h4>Нет объявлений</h4>
+                            <p>У этого риэлтора пока нет активных объявлений</p>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %} 

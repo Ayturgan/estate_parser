@@ -1,0 +1,119 @@
+# Конфигурация для Lalafo (мультикатегорийная)
+base_url: "https://lalafo.kg/api/search/v3/feed/search"
+source_name: "lalafo.kg"
+use_playwright: true
+
+# Настройки API
+api_settings:
+  url_format: "{base_url}?category_id={category_id}&expand=url&page={page}&per-page={per_page}&with_feed_banner=true"
+  start_page: 1
+  per_page: 20
+
+# Категории с соответствующими рефераками
+categories:
+  - name: "Продажа квартир"
+    category_id: 2046
+    property_type: "Квартира"
+    listing_type: "Продажа"
+    referer: "https://lalafo.kg/kyrgyzstan/kvartiry/prodazha-kvartir"
+    
+  - name: "Аренда квартир"
+    category_id: 2043
+    property_type: "Квартира"
+    listing_type: "Аренда"
+    referer: "https://lalafo.kg/kyrgyzstan/kvartiry/arenda-kvartir"
+    
+  - name: "Продажа домов"
+    category_id: 2031
+    property_type: "Дом"
+    listing_type: "Продажа"
+    referer: "https://lalafo.kg/kyrgyzstan/doma-i-dachi/prodazha-domov"
+    
+  - name: "Аренда домов"
+    category_id: 2032
+    property_type: "Дом"
+    listing_type: "Аренда"
+    referer: "https://lalafo.kg/kyrgyzstan/doma-i-dachi/arenda-domov"
+    
+  - name: "Продажа коммерческой недвижимости"
+    category_id: 2055
+    property_type: "Коммерческая недвижимость"
+    listing_type: "Продажа"
+    referer: "https://lalafo.kg/kyrgyzstan/kommercheskaya-nedvizhimost/prodazha"
+    
+  - name: "Аренда коммерческой недвижимости"
+    category_id: 2064
+    property_type: "Коммерческая недвижимость"
+    listing_type: "Аренда"
+    referer: "https://lalafo.kg/kyrgyzstan/kommercheskaya-nedvizhimost/arenda"
+    
+  - name: "Продажа земельных участков"
+    category_id: 2038
+    property_type: "Земельный участок"
+    listing_type: "Продажа"
+    referer: "https://lalafo.kg/kyrgyzstan/zemelnye-uchastki/prodazha-zemli"
+    
+  - name: "Аренда земельных участков"
+    category_id: 2039
+    property_type: "Земельный участок"
+    listing_type: "Аренда"
+    referer: "https://lalafo.kg/kyrgyzstan/zemelnye-uchastki/arenda-zemli"
+    
+  - name: "Продажа комнат"
+    category_id: 2050
+    property_type: "Комната"
+    listing_type: "Продажа"
+    referer: "https://lalafo.kg/kyrgyzstan/komnaty/prodazha-komnat"
+    
+  - name: "Аренда комнат"
+    category_id: 2051
+    property_type: "Комната"
+    listing_type: "Аренда"
+    referer: "https://lalafo.kg/kyrgyzstan/komnaty/arenda-komnat"
+    
+  - name: "Продажа гаражей"
+    category_id: 5301
+    property_type: "Гараж"
+    listing_type: "Продажа"
+    referer: "https://lalafo.kg/kyrgyzstan/garaji/prodayu-garazh"
+    
+  - name: "Аренда гаражей"
+    category_id: 5299
+    property_type: "Гараж"
+    listing_type: "Аренда"
+    referer: "https://lalafo.kg/kyrgyzstan/garaji/sdayu-garazh"
+
+# Настройки парсинга
+parse_all_listings: false       # true = парсить ВСЕ объявления, false = ограничение
+max_items_limit: 10         # Если parse_all_listings: false, то сколько объявлений парсить ПО КАЖДОЙ КАТЕГОРИИ
+
+# Настройки Playwright
+playwright:
+  headless: true
+  sleep_time: 3
+
+# Поля API ответа
+api_fields:
+  items_key: "items"  # Ключ массива объявлений в ответе
+  item_fields:
+    title: "title"
+    description: "description" 
+    city: "city"
+
+    price: "price"
+    currency: "currency"
+    mobile: "mobile"
+    created_time: "created_time"
+    url: "url"
+    main_image_url: "images.0.original_url"  # Первое изображение
+    images: "images"  # Массив всех изображений
+    district: "district"
+
+# Построение полного URL объявления
+url_building:
+  pattern: "https://lalafo.kg{url}"  # Преобразует относительный URL в абсолютный
+
+# Обработка данных
+data_processing:
+  clean_html: true
+  validate_required_fields: ["title", "price"]

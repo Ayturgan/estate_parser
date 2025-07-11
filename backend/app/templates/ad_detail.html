@@ -1,0 +1,401 @@
+{% extends "base.html" %}
+
+{% block title %}{{ unique_ad.title[:50] }}{% if unique_ad.title|length > 50 %}...{% endif %}{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- Кнопка назад -->
+    <div class="row mb-3">
+        <div class="col-12">
+            <a href="/" class="btn btn-secondary">
+                <i class="bi bi-arrow-left"></i> Назад к объявлениям
+            </a>
+        </div>
+    </div>
+
+    <!-- Главная информация об объявлении -->
+    <div class="row mb-4">
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-body">
+                    <h1 class="card-title">{{ unique_ad.title or 'Без названия' }}</h1>
+                    
+                    {% if unique_ad.price %}
+                        <div class="mb-3">
+                            <h2 class="text-success">
+                                {% if unique_ad.currency == 'USD' %}${{ "{:,.0f}".format(unique_ad.price) }}
+                                {% elif unique_ad.currency == 'SOM' %}{{ "{:,.0f}".format(unique_ad.price) }} сом
+                                {% elif unique_ad.currency == 'EUR' %}€{{ "{:,.0f}".format(unique_ad.price) }}
+                                {% else %}{{ "{:,.0f}".format(unique_ad.price) }} {{ unique_ad.currency or '' }}
+                                {% endif %}
+                            </h2>
+                        </div>
+                    {% endif %}
+                    
+                    <!-- Основные характеристики -->
+                    <div class="row mb-4">
+                        <div class="col-md-6">
+                            <h6>Основные характеристики</h6>
+                            <ul class="list-unstyled">
+                                {% if unique_ad.area_sqm %}
+                                    <li><i class="bi bi-aspect-ratio"></i> Площадь: <strong>{{ unique_ad.area_sqm }} м²</strong></li>
+                                {% endif %}
+                                {% if unique_ad.rooms %}
+                                    <li><i class="bi bi-door-open"></i> Комнат: <strong>{{ unique_ad.rooms }}</strong></li>
+                                {% endif %}
+                                {% if unique_ad.floor %}
+                                    <li><i class="bi bi-building"></i> Этаж: <strong>{{ unique_ad.floor }}{% if unique_ad.total_floors %}/{{ unique_ad.total_floors }}{% endif %}</strong></li>
+                                {% endif %}
+                                {% if unique_ad.property_type %}
+                                    <li><i class="bi bi-house"></i> Тип: <strong>{{ unique_ad.property_type }}</strong></li>
+                                {% endif %}
+                                {% if unique_ad.listing_type %}
+                                    <li><i class="bi bi-tag"></i> Сделка: <strong>{{ unique_ad.listing_type }}</strong></li>
+                                {% endif %}
+                            </ul>
+                        </div>
+                        <div class="col-md-6">
+                            <h6>Дополнительные характеристики</h6>
+                            <ul class="list-unstyled">
+                                {% if base_ad and base_ad.series %}
+                                    <li><i class="bi bi-grid"></i> Серия: <strong>{{ base_ad.series }}</strong></li>
+                                {% endif %}
+                                {% if base_ad and base_ad.building_type %}
+                                    <li><i class="bi bi-building"></i> Тип дома: <strong>{{ base_ad.building_type }}</strong></li>
+                                {% endif %}
+                                {% if base_ad and base_ad.condition %}
+                                    <li><i class="bi bi-tools"></i> Состояние: <strong>{{ base_ad.condition }}</strong></li>
+                                {% endif %}
+                                {% if base_ad and base_ad.furniture %}
+                                    <li><i class="bi bi-chair"></i> Мебель: <strong>{{ base_ad.furniture }}</strong></li>
+                                {% endif %}
+                                {% if base_ad and base_ad.heating %}
+                                    <li><i class="bi bi-thermometer-half"></i> Отопление: <strong>{{ base_ad.heating }}</strong></li>
+                                {% endif %}
+                            </ul>
+                        </div>
+                    </div>
+                    
+                    <!-- Описание -->
+                    {% if unique_ad.description %}
+                        <div class="mb-4">
+                            <h6>Описание</h6>
+                            <p class="text-muted">{{ unique_ad.description }}</p>
+                        </div>
+                    {% endif %}
+                    
+                    <!-- Фотографии -->
+                    {% if unique_ad.photos and unique_ad.photos|length > 0 %}
+                        <div class="mb-4">
+                            <h6>Фотографии</h6>
+                            <div class="row">
+                                {% for photo in unique_ad.photos %}
+                                    <div class="col-lg-3 col-md-4 col-sm-6 mb-3">
+                                        <img src="{{ photo.url }}" 
+                                             class="img-fluid rounded shadow-sm" 
+                                             alt="Фото {{ loop.index }}" 
+                                             style="height: 200px; width: 100%; object-fit: cover; cursor: pointer;"
+                                             onclick="showPhotoModal('{{ photo.url }}')"
+                                             onerror="this.style.display='none'">
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        
+        <!-- Боковая панель -->
+        <div class="col-md-4">
+            <!-- Адрес -->
+            {% if unique_ad.location %}
+                <div class="card mb-3">
+                    <div class="card-body">
+                        <h6 class="card-title">
+                            <i class="bi bi-geo-alt"></i> Адрес
+                        </h6>
+                        <p class="card-text">
+                            {% if unique_ad.location.city %}{{ unique_ad.location.city }}{% endif %}
+                            {% if unique_ad.location.district and unique_ad.location.city %}, {% endif %}
+                            {% if unique_ad.location.district %}{{ unique_ad.location.district }}{% endif %}
+                            {% if unique_ad.location.address %}
+                                <br>{{ unique_ad.location.address }}
+                            {% endif %}
+                        </p>
+                    </div>
+                </div>
+            {% endif %}
+            
+            <!-- Информация о риэлторе -->
+            {% if realtor %}
+                <div class="card mb-3">
+                    <div class="card-body">
+                        <h6 class="card-title">
+                            <i class="bi bi-person-badge"></i> Риэлтор
+                        </h6>
+                        <p class="card-text">
+                            {% if realtor.name %}
+                                <strong>{{ realtor.name }}</strong><br>
+                            {% endif %}
+                            {% if realtor.company_name %}
+                                <small class="text-muted">{{ realtor.company_name }}</small><br>
+                            {% endif %}
+                            {% if realtor.phone_number %}
+                                <i class="bi bi-telephone"></i> {{ realtor.phone_number }}<br>
+                            {% endif %}
+                            <small class="text-muted">
+                                {{ realtor.total_ads_count }} объявлений
+                            </small>
+                        </p>
+                        <a href="/realtor/{{ realtor.id }}" class="btn btn-outline-primary btn-sm">
+                            <i class="bi bi-person"></i> Профиль риэлтора
+                        </a>
+                    </div>
+                </div>
+            {% endif %}
+            
+            <!-- Контактная информация -->
+            {% if base_ad and base_ad.phone_numbers %}
+                <div class="card mb-3">
+                    <div class="card-body">
+                        <h6 class="card-title">
+                            <i class="bi bi-telephone"></i> Контакты
+                        </h6>
+                        {% for phone in base_ad.phone_numbers %}
+                            <p class="card-text">
+                                <a href="tel:{{ phone }}" class="text-decoration-none">
+                                    {{ phone }}
+                                </a>
+                            </p>
+                        {% endfor %}
+                    </div>
+                </div>
+            {% endif %}
+            
+            <!-- Источник -->
+            {% if base_ad and base_ad.source_url %}
+                <div class="card mb-3">
+                    <div class="card-body">
+                        <h6 class="card-title">
+                            <i class="bi bi-link-45deg"></i> Источник
+                        </h6>
+                        <p class="card-text">
+                            {% if base_ad.source_name %}
+                                <strong>{{ base_ad.source_name }}</strong><br>
+                            {% endif %}
+                            <a href="{{ base_ad.source_url }}" target="_blank" class="btn btn-outline-secondary btn-sm">
+                                <i class="bi bi-box-arrow-up-right"></i> Перейти к источнику
+                            </a>
+                        </p>
+                    </div>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+    
+    <!-- Дубликаты -->
+    {% if duplicates and duplicates|length > 0 %}
+        <div class="row">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="bi bi-files"></i> Дубликаты 
+                            <span class="badge bg-warning">{{ duplicates|length }}</span>
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            {% for duplicate in duplicates %}
+                                <div class="col-md-6 col-lg-4 mb-3">
+                                    <div class="card border-warning">
+                                        <div class="card-body">
+                                            <h6 class="card-title">
+                                                {{ duplicate.title[:50] }}{% if duplicate.title|length > 50 %}...{% endif %}
+                                            </h6>
+                                            <p class="card-text">
+                                                <small class="text-muted">
+                                                    <i class="bi bi-globe"></i> {{ duplicate.source_name or 'Неизвестный источник' }}
+                                                </small>
+                                            </p>
+                                            {% if duplicate.price %}
+                                                <p class="card-text">
+                                                    <strong>
+                                                        {% if duplicate.currency == 'USD' %}${{ "{:,.0f}".format(duplicate.price) }}
+                                                        {% elif duplicate.currency == 'SOM' %}{{ "{:,.0f}".format(duplicate.price) }} сом
+                                                        {% elif duplicate.currency == 'EUR' %}€{{ "{:,.0f}".format(duplicate.price) }}
+                                                        {% else %}{{ "{:,.0f}".format(duplicate.price) }} {{ duplicate.currency or '' }}
+                                                        {% endif %}
+                                                    </strong>
+                                                </p>
+                                            {% endif %}
+                                            {% if duplicate.source_url %}
+                                                <a href="{{ duplicate.source_url }}" target="_blank" class="btn btn-outline-primary btn-sm">
+                                                    <i class="bi bi-box-arrow-up-right"></i> Источник
+                                                </a>
+                                            {% endif %}
+                                            <button class="btn btn-info btn-sm" onclick="showDuplicateModal({{ unique_ad.id }}, {{ duplicate.id }})">
+                                                <i class="bi bi-eye"></i> Детали
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    {% endif %}
+</div>
+
+<!-- Модальное окно для фотографий -->
+<div class="modal fade" id="photoModal" tabindex="-1" style="z-index: 1060;">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Фотография</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body text-center">
+                <img id="photoModalImage" src="" class="img-fluid" alt="Фотография">
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно для деталей дубликата -->
+<div class="modal fade" id="duplicateModal" tabindex="-1" role="dialog" aria-labelledby="duplicateModalTitle">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="duplicateModalTitle">Детали дубликата</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+            </div>
+            <div class="modal-body" id="duplicateModalBody">
+                <div class="text-center">
+                    <div class="spinner-border" role="status">
+                        <span class="visually-hidden">Загрузка...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Функция для показа фотографии в модальном окне
+function showPhotoModal(photoUrl) {
+    const modal = new bootstrap.Modal(document.getElementById('photoModal'));
+    document.getElementById('photoModalImage').src = photoUrl;
+    modal.show();
+}
+
+// Функция для показа деталей дубликата
+function showDuplicateModal(mainAdId, duplicateId) {
+    const modalElement = document.getElementById('duplicateModal');
+    const modal = new bootstrap.Modal(modalElement);
+    const titleElement = document.getElementById('duplicateModalTitle');
+    const bodyElement = document.getElementById('duplicateModalBody');
+    
+    // Показываем спиннер
+    bodyElement.innerHTML = `
+        <div class="text-center">
+            <div class="spinner-border" role="status">
+                <span class="visually-hidden">Загрузка...</span>
+            </div>
+        </div>
+    `;
+    
+    titleElement.textContent = 'Загрузка...';
+    
+    // Исправляем проблему с aria-hidden
+    modalElement.removeAttribute('aria-hidden');
+    modal.show();
+    
+    // Загружаем данные дубликата
+    fetch(`/api/ads/${mainAdId}/duplicates`)
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            return response.json();
+        })
+        .then(data => {
+            // Находим дубликат в списке
+            const duplicate = data.duplicates.find(d => d.id === duplicateId);
+            
+            if (duplicate) {
+                titleElement.textContent = duplicate.title || 'Дубликат';
+                
+                bodyElement.innerHTML = `
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h6>Основная информация</h6>
+                            <ul class="list-unstyled">
+                                ${duplicate.price ? `<li><strong>Цена:</strong> ${duplicate.price} ${duplicate.currency || ''}</li>` : ''}
+                                ${duplicate.area_sqm ? `<li><strong>Площадь:</strong> ${duplicate.area_sqm} м²</li>` : ''}
+                                ${duplicate.rooms ? `<li><strong>Комнат:</strong> ${duplicate.rooms}</li>` : ''}
+                                ${duplicate.source_name ? `<li><strong>Источник:</strong> ${duplicate.source_name}</li>` : ''}
+                                ${duplicate.created_at ? `<li><strong>Добавлено:</strong> ${new Date(duplicate.created_at).toLocaleDateString('ru-RU')}</li>` : ''}
+                            </ul>
+                        </div>
+                        <div class="col-md-6">
+                            ${duplicate.location ? `
+                                <h6>Адрес</h6>
+                                <p>${duplicate.location.city || ''} ${duplicate.location.district || ''}</p>
+                                ${duplicate.location.address ? `<p><small>${duplicate.location.address}</small></p>` : ''}
+                            ` : ''}
+                            ${duplicate.photos && duplicate.photos.length > 0 ? `
+                                <h6>Фотографии</h6>
+                                <div class="row">
+                                    ${duplicate.photos.slice(0, 4).map(photo => `
+                                        <div class="col-6 mb-2">
+                                            <img src="${photo.url}" class="img-fluid rounded" style="height: 80px; width: 100%; object-fit: cover; cursor: pointer;" 
+                                                 onclick="showPhotoModal('${photo.url}')">
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            ` : ''}
+                            ${duplicate.source_url ? `
+                                <div class="mt-3">
+                                    <a href="${duplicate.source_url}" target="_blank" class="btn btn-outline-primary btn-sm">
+                                        <i class="bi bi-box-arrow-up-right"></i> Перейти к источнику
+                                    </a>
+                                </div>
+                            ` : ''}
+                        </div>
+                    </div>
+                `;
+            } else {
+                titleElement.textContent = 'Дубликат не найден';
+                bodyElement.innerHTML = `
+                    <div class="alert alert-warning">
+                        <i class="bi bi-exclamation-triangle"></i>
+                        Дубликат не найден в списке
+                    </div>
+                `;
+            }
+        })
+        .catch(error => {
+            console.error('Ошибка загрузки дубликата:', error);
+            titleElement.textContent = 'Ошибка';
+            bodyElement.innerHTML = `
+                <div class="alert alert-danger">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    Ошибка загрузки данных: ${error.message}
+                </div>
+            `;
+        });
+    
+    // Исправляем проблему с aria-hidden при закрытии модального окна
+    modalElement.addEventListener('hidden.bs.modal', function () {
+        this.removeAttribute('aria-hidden');
+    });
+}
+</script>
+{% endblock %} 

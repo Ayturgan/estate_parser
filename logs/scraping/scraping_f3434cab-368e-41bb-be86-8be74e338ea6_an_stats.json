@@ -1,0 +1,15 @@
+{
+  "job_id": "f3434cab-368e-41bb-be86-8be74e338ea6",
+  "config_name": "an",
+  "started_at": "2025-07-10T08:52:27.296730",
+  "items_total": 0,
+  "items_processed": 0,
+  "items_failed": 0,
+  "pages_processed": 0,
+  "api_calls_success": 0,
+  "api_calls_failed": 0,
+  "errors": [],
+  "warnings": [],
+  "finished_at": "2025-07-10T08:57:35.433364",
+  "status": "completed"
+}

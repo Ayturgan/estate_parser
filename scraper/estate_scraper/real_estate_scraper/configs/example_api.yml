@@ -1,0 +1,104 @@
+# Пример конфигурации для парсинга через API
+# Используется для сайтов, которые предоставляют JSON API
+
+name: "example_api"
+source_name: "api.example.com"
+spider_type: "api"
+parse_all_listings: false
+max_items_limit: 5
+
+base_url: "https://api.example.com/listings/search"
+
+# API категории недвижимости с точной классификацией
+categories:
+  # === ПРОДАЖА ===
+  - category_id: 100
+    property_type: "Квартира"
+    listing_type: "Продажа"
+    name: "квартиры_продажа"
+    
+  - category_id: 200
+    property_type: "Дом"
+    listing_type: "Продажа"
+    name: "дома_продажа"
+    
+  - category_id: 300
+    property_type: "Коммерческая недвижимость"
+    listing_type: "Продажа"
+    name: "коммерческая_продажа"
+
+  # === АРЕНДА ===
+  - category_id: 101
+    property_type: "Квартира"
+    listing_type: "Аренда"
+    name: "квартиры_аренда"
+    
+  - category_id: 201
+    property_type: "Дом"
+    listing_type: "Аренда"
+    name: "дома_аренда"
+
+# API настройки
+api_settings:
+  per_page: 20
+  start_page: 1
+  page_param: "page"
+  url_format: "{base_url}?category={category_id}&limit={per_page}&page={page}"
+
+# Поля API ответа
+api_fields:
+  items_key: "data"
+  pagination_key: "pagination"
+  
+  item_fields:
+    id: "id"
+    title: "title" 
+    price: "price"
+    currency: "currency"
+    location: "location.name"
+    description: "description"
+    url: "url"
+    
+    images: "images"
+    phone: "contact.phone"
+    created_at: "created_at"
+    updated_at: "updated_at"
+
+# Настройки запросов  
+request_settings:
+  delay: 1
+  timeout: 30
+  retries: 3
+  user_agent_rotation: true
+
+# Обработка данных
+data_processing:
+  ai_extraction: true  # ИИ только для извлечения данных (НЕ классификации)
+  ai_classification: false  # Классификация из category_id
+  price_cleaning: true
+  description_cleaning: true
+
+# Построение URL объявления (если нужно)
+url_building:
+  pattern: "https://example.com/{url}"
+
+# Заголовки для HTTP запросов к API
+headers:
+  Accept: "application/json"  # Ожидаем JSON ответ
+  User-Agent: "Mozilla/5.0 (compatible; Parser/1.0)"  # User-Agent для запросов
+  X-API-Key: "your-api-key-here"  # API ключ (если требуется авторизация)
+
+# Маппинг полей из JSON ответа в поля объявления
+field_mapping:
+  title: "name"  # Заголовок объявления
+  price: "price.amount"  # Цена (поддержка вложенных полей)
+  currency: "price.currency"  # Валюта
+  description: "description"  # Описание объявления
+  url: "slug"  # URL или slug объявления
+  
+  # Пример кастомного поля для главного изображения
+  main_image_url:
+    type: "main_image"  # Тип поля - главное изображение
+    source_path: "photos"  # Путь к массиву фотографий
+    main_field: "is_primary"  # Поле, определяющее главное фото
+    url_field: "url"  # Поле с URL изображения

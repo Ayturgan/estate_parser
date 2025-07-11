@@ -1,0 +1,1136 @@
+/* Основные стили */
+:root {
+    --primary-color: #0d6efd;
+    --secondary-color: #4dabf7;
+    --success-color: #198754;
+    --danger-color: #dc3545;
+    --warning-color: #ffc107;
+    --info-color: #0dcaf0;
+    --dark-color: #212529;
+    --light-color: #f8f9fa;
+    --border-radius: 0.375rem;
+    --box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+    --box-shadow-lg: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+}
+
+/* Принудительная светлая тема */
+body {
+    background-color: #ffffff !important;
+    color: #212529 !important;
+}
+
+.card {
+    background-color: #ffffff !important;
+    border: 1px solid #dee2e6 !important;
+}
+
+.card-header {
+    border-bottom: 1px solid #dee2e6 !important;
+}
+
+/* Переопределение для цветных заголовков */
+.card .card-header.bg-primary {
+    background-color: #0d6efd !important;
+    color: white !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.2) !important;
+}
+
+.card-header.bg-primary {
+    background-color: #0d6efd !important;
+    color: white !important;
+}
+
+.card-header.bg-success {
+    background-color: #198754 !important;
+    color: white !important;
+}
+
+.card-header.bg-warning {
+    background-color: #ffc107 !important;
+    color: #212529 !important;
+}
+
+.card-header.bg-info {
+    background-color: #0dcaf0 !important;
+    color: #ffffff !important;
+}
+
+.card-header.bg-danger {
+    background-color: #dc3545 !important;
+    color: white !important;
+}
+
+.bg-light {
+    background-color: #f8f9fa !important;
+}
+
+.text-muted {
+    color: #6c757d !important;
+}
+
+/* Анимации */
+.fade-in {
+    animation: fadeIn 0.5s ease-in;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.slide-in {
+    animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+    from { transform: translateX(-20px); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+}
+
+/* Карточки */
+.stats-card {
+    background: linear-gradient(135deg, var(--primary-color), var(--secondary-color)) !important;
+    color: white !important;
+    border: none !important;
+    transition: all 0.3s ease;
+    position: relative;
+    overflow: hidden;
+}
+
+.stats-card .card-body {
+    color: white !important;
+}
+
+.stats-card h3,
+.stats-card p {
+    color: white !important;
+}
+
+.stats-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(45deg, rgba(255,255,255,0.1), transparent);
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.stats-card:hover::before {
+    opacity: 1;
+}
+
+.stats-card:hover {
+    transform: translateY(-5px);
+    box-shadow: var(--box-shadow-lg);
+}
+
+.stats-card .card-icon {
+    font-size: 3rem;
+    opacity: 0.8;
+}
+
+/* Индикаторы статуса */
+.status-indicator {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    display: inline-block;
+    margin-right: 8px;
+}
+
+.status-online {
+    background-color: var(--success-color);
+    box-shadow: 0 0 10px rgba(25, 135, 84, 0.5);
+}
+
+.status-offline {
+    background-color: var(--danger-color);
+    box-shadow: 0 0 10px rgba(220, 53, 69, 0.5);
+}
+
+.status-warning {
+    background-color: var(--warning-color);
+    box-shadow: 0 0 10px rgba(255, 193, 7, 0.5);
+}
+
+/* Таблицы */
+.table-hover tbody tr:hover {
+    background-color: rgba(var(--bs-primary-rgb), 0.075);
+    transition: background-color 0.2s ease;
+}
+
+.table thead th {
+    border-bottom: 2px solid var(--primary-color);
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 0.875rem;
+    letter-spacing: 0.05em;
+}
+
+/* Кнопки */
+.btn-gradient {
+    background: linear-gradient(45deg, var(--primary-color), var(--secondary-color));
+    border: none;
+    color: white;
+    transition: all 0.3s ease;
+}
+
+.btn-gradient:hover {
+    background: linear-gradient(45deg, #0b5ed7, #339af0);
+    transform: translateY(-2px);
+    box-shadow: var(--box-shadow-lg);
+    color: white;
+}
+
+/* Модальные окна */
+.modal-content {
+    border: none;
+    border-radius: var(--border-radius);
+    box-shadow: var(--box-shadow-lg);
+}
+
+.modal-header {
+    border-bottom: 1px solid rgba(var(--bs-border-color-rgb), 0.2);
+    background: linear-gradient(45deg, var(--primary-color), var(--secondary-color));
+    color: white;
+}
+
+/* Исправление проблемы с aria-hidden для модальных окон */
+.modal.show {
+    display: block !important;
+}
+
+.modal.show .modal-dialog {
+    pointer-events: auto;
+}
+
+.modal.show .btn-close {
+    pointer-events: auto;
+    z-index: 1056;
+}
+
+/* Убираем aria-hidden для показанных модальных окон */
+.modal.show[aria-hidden="true"] {
+    aria-hidden: false;
+}
+
+.modal-header .btn-close {
+    filter: brightness(0) invert(1);
+}
+
+/* Загрузка */
+.loading-spinner {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    border: 3px solid rgba(255, 255, 255, 0.3);
+    border-radius: 50%;
+    border-top-color: white;
+    animation: spin 1s ease-in-out infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Прогресс бары */
+.progress {
+    height: 8px;
+    border-radius: 4px;
+    background-color: rgba(var(--bs-primary-rgb), 0.1);
+}
+
+.progress-bar {
+    border-radius: 4px;
+    transition: width 0.6s ease;
+}
+
+/* Логи */
+.log-container {
+    background-color: #1e1e1e;
+    color: #f8f9fa;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    font-size: 0.875rem;
+    line-height: 1.4;
+    border-radius: var(--border-radius);
+    overflow-x: auto;
+    max-height: 500px;
+    overflow-y: auto;
+}
+
+.log-line {
+    padding: 2px 16px;
+    margin: 0;
+    border-left: 3px solid transparent;
+}
+
+.log-line.error {
+    color: #ff6b6b;
+    border-left-color: #dc3545;
+    background-color: rgba(220, 53, 69, 0.1);
+}
+
+.log-line.warning {
+    color: #ffd93d;
+    border-left-color: #ffc107;
+    background-color: rgba(255, 193, 7, 0.1);
+}
+
+.log-line.info {
+    color: #74c0fc;
+    border-left-color: #0dcaf0;
+}
+
+.log-line.success {
+    color: #51cf66;
+    border-left-color: #198754;
+}
+
+/* Фильтры */
+.filter-panel {
+    background: linear-gradient(135deg, #f8f9fa, #e9ecef);
+    border-radius: var(--border-radius);
+    border: 1px solid var(--bs-border-color);
+    transition: all 0.3s ease;
+}
+
+/* Объявления */
+.ad-card {
+    transition: all 0.3s ease;
+    border: 1px solid var(--bs-border-color);
+    border-radius: var(--border-radius);
+    overflow: hidden;
+}
+
+.ad-card:hover {
+    transform: translateY(-5px);
+    box-shadow: var(--box-shadow-lg);
+    border-color: var(--primary-color);
+}
+
+.ad-card .ad-image {
+    height: 200px;
+    object-fit: cover;
+    width: 100%;
+}
+
+.ad-card .ad-price {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--success-color);
+}
+
+.ad-card .ad-meta {
+    font-size: 0.875rem;
+    color: var(--bs-secondary-color);
+}
+
+.duplicate-badge {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 10;
+}
+
+/* Пагинация */
+.pagination .page-link {
+    border-color: transparent;
+    color: var(--primary-color);
+    transition: all 0.2s ease;
+}
+
+.pagination .page-link:hover {
+    background-color: var(--primary-color);
+    border-color: var(--primary-color);
+    color: white;
+    transform: translateY(-2px);
+}
+
+.pagination .page-item.active .page-link {
+    background-color: var(--primary-color) !important;
+    border-color: var(--primary-color) !important;
+    color: white !important;
+}
+
+.pagination .page-item.active .page-link:hover {
+    background-color: var(--primary-color) !important;
+    border-color: var(--primary-color) !important;
+    color: white !important;
+}
+
+/* Графики */
+.chart-container {
+    position: relative;
+    background: white;
+    border-radius: var(--border-radius);
+    padding: 20px;
+    box-shadow: var(--box-shadow);
+}
+
+/* Стили для автоматизации */
+.automation-config .badge {
+    font-size: 0.9em;
+    padding: 0.5em 0.75em;
+}
+
+.automation-stages .badge {
+    margin: 0.2em;
+    font-size: 0.8em;
+}
+
+/* Стили для карточек источников парсинга */
+.scraping-source-card {
+    transition: all 0.3s ease;
+}
+
+.scraping-source-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.scraping-source-card .progress {
+    height: 6px;
+    border-radius: 3px;
+}
+
+.scraping-source-card .progress-bar {
+    border-radius: 3px;
+    transition: width 0.6s ease;
+}
+
+.alert-sm {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+    border-radius: 0.25rem;
+}
+
+/* Анимация для прогресс бара */
+.progress-bar-animated {
+    background-image: linear-gradient(45deg, rgba(255, 255, 255, 0.15) 25%, transparent 25%, transparent 50%, rgba(255, 255, 255, 0.15) 50%, rgba(255, 255, 255, 0.15) 75%, transparent 75%, transparent);
+    background-size: 1rem 1rem;
+    animation: progress-bar-stripes 1s linear infinite;
+}
+
+@keyframes progress-bar-stripes {
+    0% { background-position: 1rem 0; }
+    100% { background-position: 0 0; }
+}
+
+.card.border-warning {
+    border-width: 2px;
+    box-shadow: 0 0 15px rgba(255, 193, 7, 0.2);
+}
+
+.card.border-success {
+    border-width: 2px;
+    box-shadow: 0 0 15px rgba(25, 135, 84, 0.2);
+}
+
+.card.border-danger {
+    border-width: 2px;
+    box-shadow: 0 0 15px rgba(220, 53, 69, 0.2);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .container-fluid {
+        padding-left: 15px;
+        padding-right: 15px;
+    }
+    
+    .stats-card .card-icon {
+        font-size: 2rem;
+    }
+    
+    .ad-card .ad-image {
+        height: 150px;
+    }
+    
+    .table-responsive {
+        font-size: 0.875rem;
+    }
+}
+
+/* Утилиты */
+.text-gradient {
+    background: linear-gradient(45deg, var(--primary-color), var(--secondary-color));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    font-weight: 700;
+}
+
+.border-gradient {
+    border: 2px solid;
+    border-image: linear-gradient(45deg, var(--primary-color), var(--secondary-color)) 1;
+}
+
+.shadow-custom {
+    box-shadow: 0 0.5rem 1rem rgba(13, 110, 253, 0.15) !important;
+}
+
+/* Анимация для real-time обновлений */
+.pulse {
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+    100% { transform: scale(1); }
+}
+
+.highlight-new {
+    animation: highlightNew 3s ease-out;
+}
+
+@keyframes highlightNew {
+    0% { background-color: rgba(25, 135, 84, 0.3); }
+    100% { background-color: transparent; }
+} 
+
+/* Стили для поиска */
+.search-autocomplete {
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    border-radius: 0 0 8px 8px;
+}
+
+.search-suggestion {
+    transition: background-color 0.2s ease;
+}
+
+.search-suggestion:hover {
+    background-color: #f8f9fa !important;
+}
+
+.search-suggestion:last-child {
+    border-bottom: none !important;
+}
+
+/* Стили для активного поиска */
+.search-active .input-group .form-control {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.25);
+}
+
+/* Анимация для индикатора поиска */
+.search-indicator {
+    animation: searchPulse 2s infinite;
+}
+
+@keyframes searchPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+}
+
+/* Улучшенные стили для фильтров */
+.filter-badge {
+    font-size: 0.875rem;
+    padding: 0.375rem 0.75rem;
+    border-radius: 20px;
+    margin: 0.25rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.filter-badge i {
+    font-size: 0.75rem;
+}
+
+/* Стили для результатов поиска */
+.search-results-header {
+    background: linear-gradient(135deg, #f8f9fa, #e9ecef);
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    border-left: 4px solid var(--primary-color);
+}
+
+.search-highlight {
+    background-color: rgba(255, 193, 7, 0.3);
+    padding: 0.1rem 0.2rem;
+    border-radius: 3px;
+    font-weight: 500;
+}
+
+/* WebSocket и Real-time компоненты */
+
+@keyframes pulse-green {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+@keyframes pulse-yellow {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+}
+
+@keyframes pulse-red {
+    0%, 100% { opacity: 1; }
+    25% { opacity: 0.3; }
+}
+
+/* Индикатор real-time в навигации */
+.realtime-indicator {
+    position: relative;
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    margin-left: 8px;
+}
+
+.realtime-indicator.connected {
+    background-color: var(--success-color);
+    box-shadow: 0 0 10px rgba(25, 135, 84, 0.5);
+    animation: pulse-indicator 2s infinite;
+}
+
+.realtime-indicator.disconnected {
+    background-color: var(--danger-color);
+}
+
+.realtime-indicator.reconnecting {
+    background-color: var(--warning-color);
+    animation: pulse-indicator 1s infinite;
+}
+
+.realtime-indicator.error {
+    background-color: var(--danger-color);
+    animation: pulse-indicator 0.5s infinite;
+}
+
+@keyframes pulse-indicator {
+    0%, 100% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.2); opacity: 0.7; }
+}
+
+/* Toast уведомления */
+.toast-container {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 1050;
+    max-width: 350px;
+}
+
+.toast {
+    background-color: white;
+    border: 1px solid rgba(0, 0, 0, 0.125);
+    border-radius: var(--border-radius);
+    box-shadow: var(--box-shadow-lg);
+    margin-bottom: 10px;
+    overflow: hidden;
+    animation: slideInRight 0.3s ease-out;
+}
+
+.toast-success {
+    border-left: 4px solid var(--success-color);
+}
+
+.toast-error {
+    border-left: 4px solid var(--danger-color);
+}
+
+.toast-warning {
+    border-left: 4px solid var(--warning-color);
+}
+
+.toast-info {
+    border-left: 4px solid var(--info-color);
+}
+
+.toast-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    background-color: rgba(0, 0, 0, 0.03);
+    border-bottom: 1px solid rgba(0, 0, 0, 0.125);
+    font-size: 0.875rem;
+}
+
+.toast-body {
+    padding: 12px;
+    font-size: 0.875rem;
+    line-height: 1.4;
+}
+
+@keyframes slideInRight {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+/* Progress bars для real-time обновлений */
+.realtime-progress {
+    position: relative;
+    background-color: rgba(var(--bs-primary-rgb), 0.1);
+    border-radius: var(--border-radius);
+    overflow: hidden;
+}
+
+.realtime-progress-bar {
+    background: linear-gradient(45deg, var(--primary-color), var(--secondary-color));
+    transition: width 0.3s ease;
+}
+
+/* Счетчики real-time */
+.realtime-counter {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 20px;
+    height: 20px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 1;
+    padding: 2px 6px;
+    border-radius: 10px;
+    background-color: var(--danger-color);
+    color: white;
+    margin-left: 6px;
+    animation: counterPulse 0.3s ease-out;
+}
+
+.realtime-counter.success {
+    background-color: var(--success-color);
+}
+
+.realtime-counter.warning {
+    background-color: var(--warning-color);
+    color: var(--dark-color);
+}
+
+.realtime-counter.info {
+    background-color: var(--info-color);
+    color: var(--dark-color);
+}
+
+@keyframes counterPulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.2); }
+    100% { transform: scale(1); }
+}
+
+/* Новые объявления */
+.new-ad {
+    position: relative;
+    animation: newAdSlideIn 0.5s ease-out;
+    background-color: rgba(25, 135, 84, 0.05) !important;
+    border-left: 4px solid var(--success-color) !important;
+}
+
+.new-ad::before {
+    content: 'НОВОЕ';
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background-color: var(--success-color);
+    color: white;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+@keyframes newAdSlideIn {
+    from {
+        transform: translateX(-20px);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+/* Живая статистика */
+.live-stats {
+    position: relative;
+}
+
+.live-stats::before {
+    content: '';
+    position: absolute;
+    top: -5px;
+    right: -5px;
+    width: 10px;
+    height: 10px;
+    background-color: var(--success-color);
+    border-radius: 50%;
+    animation: live-indicator 2s infinite;
+}
+
+@keyframes live-indicator {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.8); }
+}
+
+/* === INTEGRATED DASHBOARD STYLES === */
+.stat-updated {
+    animation: statUpdateFlash 0.6s ease-in-out;
+}
+
+@keyframes statUpdateFlash {
+    0% { transform: scale(1); background-color: transparent; }
+    50% { transform: scale(1.05); background-color: rgba(40, 167, 69, 0.1); }
+    100% { transform: scale(1); background-color: transparent; }
+}
+
+/* Улучшенные прогресс бары в карточках статистики */
+.stats-card .realtime-progress {
+    border-radius: 10px;
+    overflow: hidden;
+    background-color: rgba(0, 0, 0, 0.1);
+    margin-top: 8px;
+}
+
+.stats-card .realtime-progress-bar {
+    background: linear-gradient(90deg, var(--primary-color), var(--accent-color));
+    border-radius: 10px;
+    position: relative;
+    overflow: hidden;
+    transition: width 0.3s ease;
+}
+
+.stats-card .realtime-progress-bar::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.6), transparent);
+    animation: progressShine 2s infinite;
+}
+
+@keyframes progressShine {
+    0% { left: -100%; }
+    100% { left: 100%; }
+}
+
+/* Стили для детальных страниц */
+.ad-detail-image {
+    max-height: 400px;
+    object-fit: cover;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.ad-detail-gallery img {
+    transition: transform 0.2s ease;
+    cursor: pointer;
+}
+
+.ad-detail-gallery img:hover {
+    transform: scale(1.02);
+}
+
+.realtor-card {
+    border: 1px solid #e9ecef;
+    border-radius: 8px;
+    padding: 1.5rem;
+    background: #f8f9fa;
+}
+
+.realtor-stats {
+    text-align: center;
+    padding: 1rem;
+}
+
+.realtor-stats h3 {
+    margin: 0.5rem 0;
+    color: #495057;
+}
+
+.realtor-stats .stat-label {
+    font-size: 0.9rem;
+    color: #6c757d;
+    margin-bottom: 0.5rem;
+}
+
+.duplicate-card {
+    border-left: 4px solid #ffc107;
+    transition: all 0.2s ease;
+}
+
+.duplicate-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+.phone-link {
+    color: #007bff;
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.phone-link:hover {
+    text-decoration: underline;
+}
+
+.characteristic-list {
+    list-style: none;
+    padding: 0;
+}
+
+.characteristic-list li {
+    padding: 0.25rem 0;
+    border-bottom: 1px solid #f8f9fa;
+}
+
+.characteristic-list li:last-child {
+    border-bottom: none;
+}
+
+.characteristic-list i {
+    color: #6c757d;
+    margin-right: 0.5rem;
+    width: 16px;
+}
+
+/* Кнопки для детальных страниц */
+.btn-back {
+    background-color: #6c757d;
+    border-color: #6c757d;
+    color: white;
+    transition: all 0.2s ease;
+}
+
+.btn-back:hover {
+    background-color: #5a6268;
+    border-color: #545b62;
+    color: white;
+    transform: translateX(-2px);
+}
+
+.btn-back i {
+    margin-right: 0.5rem;
+}
+
+/* Стили для карточек риэлторов */
+.realtor-profile-card {
+    background: linear-gradient(135deg, #f8f9fa, #e9ecef);
+    border: none;
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+.realtor-profile-card h1 {
+    color: #2c3e50;
+    font-weight: 600;
+}
+
+.realtor-profile-card h5 {
+    color: #7f8c8d;
+    font-weight: 400;
+}
+
+.realtor-contact-info {
+    background: white;
+    border-radius: 8px;
+    padding: 1.5rem;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+}
+
+.realtor-contact-info i {
+    color: #3498db;
+    margin-right: 0.5rem;
+}
+
+.realtor-stats-card {
+    background: linear-gradient(135deg, #3498db, #2980b9);
+    color: white;
+    border: none;
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(52, 152, 219, 0.3);
+}
+
+.realtor-stats-card h3 {
+    color: white;
+    font-weight: 700;
+}
+
+.realtor-stats-card p {
+    color: rgba(255, 255, 255, 0.8);
+}
+
+.realtor-stats-card .progress {
+    background-color: rgba(255, 255, 255, 0.2);
+    border-radius: 10px;
+    height: 8px;
+}
+
+.realtor-stats-card .progress-bar {
+    background-color: white;
+    border-radius: 10px;
+}
+
+/* Адаптивность для детальных страниц */
+@media (max-width: 768px) {
+    .ad-detail-image {
+        max-height: 250px;
+    }
+    
+    .realtor-card {
+        padding: 1rem;
+    }
+    
+    .characteristic-list {
+        font-size: 0.9rem;
+    }
+    
+    .realtor-profile-card {
+        margin-bottom: 1rem;
+    }
+    
+    .realtor-contact-info {
+        padding: 1rem;
+    }
+}
+
+/* Стили для дубликатов */
+.duplicates-section {
+    border-top: 3px solid #ffc107;
+    margin-top: 2rem;
+    padding-top: 2rem;
+}
+
+.duplicates-section h5 {
+    color: #856404;
+    font-weight: 600;
+}
+
+.duplicate-item {
+    border: 1px solid #fff3cd;
+    border-radius: 8px;
+    background: #fefdf5;
+    transition: all 0.2s ease;
+}
+
+.duplicate-item:hover {
+    border-color: #ffc107;
+    box-shadow: 0 2px 8px rgba(255, 193, 7, 0.2);
+}
+
+.duplicate-source {
+    background: #fff3cd;
+    color: #856404;
+    font-size: 0.8rem;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    display: inline-block;
+}
+
+/* Улучшенные стили для уведомлений */
+.notification-alert {
+    border: none;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    backdrop-filter: blur(10px);
+    transform: translateX(0);
+    transition: all 0.3s ease;
+    animation: slideInNotification 0.3s ease-out;
+}
+
+.notification-alert:hover {
+    transform: translateX(-5px);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+}
+
+.notification-alert.alert-success {
+    background-color: rgba(212, 237, 218, 0.95);
+    border-left: 4px solid #198754;
+}
+
+.notification-alert.alert-danger {
+    background-color: rgba(248, 215, 218, 0.95);
+    border-left: 4px solid #dc3545;
+}
+
+.notification-alert.alert-warning {
+    background-color: rgba(255, 243, 205, 0.95);
+    border-left: 4px solid #ffc107;
+}
+
+.notification-alert.alert-info {
+    background-color: rgba(207, 244, 252, 0.95);
+    border-left: 4px solid #0dcaf0;
+}
+
+.notification-alert .btn-close {
+    font-size: 0.8rem;
+    padding: 0.5rem;
+    opacity: 0.7;
+    transition: opacity 0.2s ease;
+}
+
+.notification-alert .btn-close:hover {
+    opacity: 1;
+}
+
+@keyframes slideInNotification {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+/* Стили для мобильных устройств */
+@media (max-width: 768px) {
+    .notification-alert {
+        right: 10px !important;
+        left: 10px !important;
+        min-width: auto !important;
+        max-width: none !important;
+        width: auto !important;
+    }
+}
+
+/* Убираем лишние отступы у уведомлений */
+.notification-alert {
+    margin-bottom: 0 !important;
+}
+
+/* Анимация для закрытия уведомлений */
+.notification-alert.closing {
+    animation: slideOutNotification 0.3s ease-in forwards;
+}
+
+@keyframes slideOutNotification {
+    from {
+        transform: translateX(0);
+        opacity: 1;
+    }
+    to {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+}
+
+/* Убираем синее свечение у кнопки закрытия */
+.notification-alert .btn-close:focus {
+    box-shadow: none;
+}
+
+/* Скрываем стандартные Bootstrap уведомления, которые будут заменены нашими */
+.alert:not(.notification-alert) {
+    display: none !important;
+}
+

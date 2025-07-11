@@ -1,157 +1,118 @@
 services:
-
-  api:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: api
-    environment:
-      - DB_HOST=${DB_HOST}
-      - DB_PORT=${DB_PORT}
-      - DB_NAME=${DB_NAME}
-      - DB_USER=${DB_USER}
-      - DB_PASSWORD=${DB_PASSWORD}
-      - API_HOST=${API_HOST}
-      - API_PORT=${API_PORT}
-      - REDIS_URL=${REDIS_URL}
-      - ELASTICSEARCH_HOSTS=${ELASTICSEARCH_HOSTS}
-      - ELASTICSEARCH_INDEX=${ELASTICSEARCH_INDEX}
-    volumes:
-      - ./:/app
-    ports:
-      - "${API_PORT}:8000"
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_started
-      elasticsearch:
-        condition: service_healthy
-
+  # База данных PostgreSQL
   db:
-    image: postgres:16-alpine 
-    container_name: db
+    image: postgres:15
+    container_name: estate_db
     environment:
       POSTGRES_DB: ${DB_NAME}
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
-    ports:
-      - "${DB_PORT}:5432" 
     volumes:
-      - db_data:/var/lib/postgresql/data
-    healthcheck: 
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-  pgadmin:
-      image: dpage/pgadmin4
-      container_name: pgadmin
-      environment:
-        PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
-        PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD}
-      ports:
-        - "${PGADMIN_PORT}:80"
-      depends_on:
-        - db
-      volumes:
-        - pgadmin_data:/var/lib/pgadmin
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${DB_PORT}:5432"
+    networks:
+      - estate_network
 
+  # Redis для кэширования и очередей
   redis:
-    image: redis:7.2
-    container_name: redis
+    image: redis:7-alpine
+    container_name: estate_redis
     ports:
       - "${REDIS_EXTERNAL_PORT}:6379"
-    restart: always
+    networks:
+      - estate_network
 
+  # Elasticsearch для поиска
   elasticsearch:
-    image: elasticsearch:8.12.0
-    container_name: elasticsearch
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+    container_name: estate_elasticsearch
     environment:
       - discovery.type=single-node
       - xpack.security.enabled=false
       - "ES_JAVA_OPTS=${ES_JAVA_OPTS}"
-      - cluster.name=${ES_CLUSTER_NAME}
-      - node.name=${ES_NODE_NAME}
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
     ports:
       - "${ELASTICSEARCH_EXTERNAL_PORT}:9200"
       - "${ELASTICSEARCH_TRANSPORT_PORT}:9300"
-    volumes:
-      - elasticsearch_data:/usr/share/elasticsearch/data
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-    restart: unless-stopped
+    networks:
+      - estate_network
 
-  scrapy:
+  # PgAdmin для управления БД
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: estate_pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD}
+    ports:
+      - "${PGADMIN_PORT}:80"
+    depends_on:
+      - db
+    networks:
+      - estate_network
+
+  # Backend API
+  api:
     build:
-      context: .
+      context: ./backend
       dockerfile: Dockerfile
-    container_name: scrapy_container
+    container_name: estate_api
     environment:
       - DB_HOST=${DB_HOST}
       - DB_PORT=${DB_PORT}
       - DB_NAME=${DB_NAME}
       - DB_USER=${DB_USER}
       - DB_PASSWORD=${DB_PASSWORD}
-      - REDIS_HOST=${REDIS_HOST}
-      - REDIS_PORT=${REDIS_PORT}
+      - REDIS_URL=${REDIS_URL}
+      - ELASTICSEARCH_HOSTS=${ELASTICSEARCH_HOSTS}
+      - ELASTICSEARCH_INDEX=${ELASTICSEARCH_INDEX}
       - SCRAPY_API_URL=${SCRAPY_API_URL}
-    entrypoint: ["/entrypoint-scrapy.sh"]
-    volumes:
-      - ./real_estate_scraper/real_estate_scraper:/app/real_estate_scraper/real_estate_scraper
-      - ./real_estate_scraper/real_estate_scraper/configs:/app/real_estate_scraper/real_estate_scraper/configs
+      - PIPELINE_INTERVAL_HOURS=${PIPELINE_INTERVAL_HOURS}
+      - RUN_IMMEDIATELY_ON_START=${RUN_IMMEDIATELY_ON_START}
+      - SCRAPING_SOURCES=${SCRAPING_SOURCES}
+      - ENABLE_SCRAPING=${ENABLE_SCRAPING}
+      - ENABLE_PHOTO_PROCESSING=${ENABLE_PHOTO_PROCESSING}
+      - ENABLE_DUPLICATE_PROCESSING=${ENABLE_DUPLICATE_PROCESSING}
+      - ENABLE_REALTOR_DETECTION=${ENABLE_REALTOR_DETECTION}
+      - ENABLE_ELASTICSEARCH_REINDEX=${ENABLE_ELASTICSEARCH_REINDEX}
+      - API_HOST=${API_HOST}
+      - API_PORT=${API_PORT}
+    ports:
+      - "${API_PORT}:8000"
+      - "80:8000"
     depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_started
-    restart: unless-stopped
-  
-  # scheduler:
-  #   build:
-  #     context: .
-  #     dockerfile: Dockerfile.scheduler
-  #   environment:
-  #     # Основные настройки
-  #     - API_BASE_URL=${API_BASE_URL}
-  #     
-  #     # Интервал запуска всего пайплайна (в часах)
-  #     - PIPELINE_INTERVAL_HOURS=${PIPELINE_INTERVAL_HOURS}
-  #     
-  #     # Запуск пайплайна сразу при старте контейнера
-  #     - RUN_IMMEDIATELY_ON_START=${RUN_IMMEDIATELY_ON_START}
-  #     
-  #     # Источники для парсинга (через запятую)
-  #     - SCRAPING_SOURCES=${SCRAPING_SOURCES}
-  #     
-  #     # Включение/выключение этапов пайплайна
-  #     - ENABLE_SCRAPING=${ENABLE_SCRAPING}               # 1: Парсинг
-  #     - ENABLE_PHOTO_PROCESSING=${ENABLE_PHOTO_PROCESSING}       # 2: Обработка фото
-  #     - ENABLE_DUPLICATE_PROCESSING=${ENABLE_DUPLICATE_PROCESSING}   # 3: Обработка дубликатов
-  #     - ENABLE_REALTOR_DETECTION=${ENABLE_REALTOR_DETECTION}      # 4: Определение риэлторов
-  #     - ENABLE_ELASTICSEARCH_REINDEX=${ENABLE_ELASTICSEARCH_REINDEX}  # 5: Индексация
-  #     
-  #     # Настройки ожидания (опционально)
-  #     - SCRAPING_CHECK_INTERVAL_SECONDS=${SCRAPING_CHECK_INTERVAL_SECONDS}     # Проверка статуса парсинга каждые 60 сек
-  #     - PROCESSING_CHECK_INTERVAL_SECONDS=${PROCESSING_CHECK_INTERVAL_SECONDS}   # Проверка статуса обработки каждые 30 сек
-  #     - MAX_WAIT_TIME_MINUTES=${MAX_WAIT_TIME_MINUTES}              # Максимальное время ожидания 120 минут
-  #     
-  #   depends_on:
-  #     - api
-  #     - redis
-  #   restart: unless-stopped
-  #   
-  #   # Мониторинг (опционально)
-  #   healthcheck:
-  #     test: ["CMD", "python", "-c", "import aiohttp; import asyncio; asyncio.run(aiohttp.ClientSession().get('${API_BASE_URL}/status'))"]
-  #     interval: 30s
-  #     timeout: 10s
-  #     retries: 3 
+      - db
+      - redis
+      - elasticsearch
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - estate_network
+
+  # Scraper сервис
+  scraper:
+    build:
+      context: ./scraper
+      dockerfile: Dockerfile
+    container_name: estate_scraper
+    environment:
+      - SCRAPY_API_URL=${SCRAPY_API_URL}
+    depends_on:
+      - api
+    volumes:
+      - ./logs:/app/logs
+      - ./backend:/app/backend
+    networks:
+      - estate_network
+
+
 
 volumes:
-  db_data:
-  pgadmin_data:
+  postgres_data:
   elasticsearch_data:
+
+networks:
+  estate_network:
+    driver: bridge
