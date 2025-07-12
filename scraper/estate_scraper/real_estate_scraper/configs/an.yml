@@ -4,7 +4,7 @@ spider_type: "html"
 parse_all_listings: false
 max_items_limit: 100
 
-base_url: "https://an.kg/"
+base_url: "https://an.kg"
 
 # URL страницы для парсинга
 start_url: "/"   # URL страницы с объявлениями

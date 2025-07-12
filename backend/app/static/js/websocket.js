@@ -13,6 +13,28 @@ class WebSocketClient {
         
         // Cлушатель для автоматического подключения
         this.initAuthListener();
+        
+        // Диагностика среды
+        this.diagnoseEnvironment();
+    }
+    
+    // Диагностика среды для ngrok
+    diagnoseEnvironment() {
+        console.log('🔍 Диагностика WebSocket среды:');
+        console.log('- Протокол:', window.location.protocol);
+        console.log('- Хост:', window.location.host);
+        console.log('- Порт:', window.location.port);
+        console.log('- Путь:', window.location.pathname);
+        
+        const isNgrok = window.location.host.includes('ngrok') || window.location.host.includes('ngrok-free.app');
+        console.log('- Ngrok обнаружен:', isNgrok);
+        
+        if (isNgrok) {
+            console.log('⚠️  Ngrok обнаружен. Требования:');
+            console.log('  1. Запустить ngrok с: ngrok http 8000 --host-header=rewrite');
+            console.log('  2. Убедиться что WebSocket поддерживается');
+            console.log('  3. Проверить что сервер работает на порту 8000');
+        }
     }
     
     // Подключаемся только после успешной аутентификации
@@ -32,9 +54,113 @@ class WebSocketClient {
         // Проверяем, есть ли уже токен при загрузке страницы
         const existingToken = getAuthToken();
         if (existingToken) {
-            console.log('🔑 Найден существующий токен, подключаемся к WebSocket...');
+            console.log('🔑 Найден существующий токен, подключаемся...');
+            console.log('🔑 Токен:', existingToken ? '✅ Есть' : '❌ Нет');
             this.connect(existingToken);
+        } else {
+            console.log('❌ Токен не найден, ждем авторизации...');
         }
+    }
+    
+    // HTTP polling для ngrok (альтернатива WebSocket)
+    initHttpPolling(token) {
+        console.log('🔄 Инициализация HTTP polling для ngrok...');
+        console.log('🔄 Токен для polling:', token ? '✅ Есть' : '❌ Нет');
+        this.pollingToken = token;
+        this.pollingInterval = null;
+        this.lastEventId = 0;
+        
+        // Эмулируем подключение
+        this.isConnected = true;
+        console.log('🔄 Устанавливаем индикатор подключения...');
+        setRealtimeIndicator(true);
+        
+        // Запускаем polling
+        this.startPolling();
+        
+        // Эмитим событие о подключении
+        this.emit('connected', {});
+        
+        // Запрашиваем начальные данные
+        this.requestInitialData();
+        
+        console.log('✅ HTTP polling инициализирован успешно!');
+    }
+    
+    startPolling() {
+        if (this.pollingInterval) {
+            clearInterval(this.pollingInterval);
+        }
+        
+        this.pollingInterval = setInterval(() => {
+            this.pollForUpdates();
+        }, 2000); // Опрашиваем каждые 2 секунды
+        
+        console.log('📡 HTTP polling запущен (каждые 2 секунды)');
+    }
+    
+    async pollForUpdates() {
+        try {
+            console.log('📡 Выполняем HTTP polling...');
+            const response = await fetch('/api/stats', {
+                headers: {
+                    'Authorization': `Bearer ${this.pollingToken}`
+                }
+            });
+            
+            console.log('📡 HTTP polling ответ:', response.status);
+            
+            if (response.ok) {
+                const data = await response.json();
+                console.log('📡 Получены данные через polling:', Object.keys(data));
+                // Эмулируем WebSocket событие
+                this.handleInitialStats(data);
+            } else {
+                console.error('❌ HTTP polling ошибка:', response.status, response.statusText);
+            }
+        } catch (error) {
+            console.error('❌ Ошибка HTTP polling:', error);
+        }
+    }
+    
+    async requestInitialData() {
+        try {
+            // Запрашиваем статистику
+            const statsResponse = await fetch('/api/stats', {
+                headers: {
+                    'Authorization': `Bearer ${this.pollingToken}`
+                }
+            });
+            
+            if (statsResponse.ok) {
+                const stats = await statsResponse.json();
+                this.handleInitialStats(stats);
+            }
+            
+            // Запрашиваем статус автоматизации если на странице автоматизации
+            if (window.location.pathname === '/automation') {
+                const automationResponse = await fetch('/api/automation/status', {
+                    headers: {
+                        'Authorization': `Bearer ${this.pollingToken}`
+                    }
+                });
+                
+                if (automationResponse.ok) {
+                    const automationStatus = await automationResponse.json();
+                    this.handleEvent('automation_status', automationStatus);
+                }
+            }
+        } catch (error) {
+            console.error('Ошибка запроса начальных данных:', error);
+        }
+    }
+    
+    stopPolling() {
+        if (this.pollingInterval) {
+            clearInterval(this.pollingInterval);
+            this.pollingInterval = null;
+        }
+        console.log('📡 HTTP polling остановлен');
     }
     
     // Система событий
@@ -85,14 +211,21 @@ class WebSocketClient {
         
         // Динамический URL на основе текущего хоста
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${protocol}//${window.location.host}/ws?token=${encodeURIComponent(fullToken)}`;
+        let wsUrl = `${protocol}//${window.location.host}/ws?token=${encodeURIComponent(fullToken)}`;
+        
+        // Специальная обработка для ngrok
+        if (window.location.host.includes('ngrok') || window.location.host.includes('ngrok-free.app')) {
+            console.log('🔗 Обнаружен ngrok, переходим на HTTP polling вместо WebSocket');
+            this.initHttpPolling(token);
+            return;
+        }
         
         console.log('Подключаемся к WebSocket:', wsUrl);
         
         this.ws = new WebSocket(wsUrl);
             
         this.ws.onopen = () => {
-            console.log('✅ WebSocket connected');
+            console.log('✅ WebSocket connected successfully');
             this.isConnected = true;
             this.reconnectAttempts = 0;
             this.reconnectDelay = 1000;
@@ -135,13 +268,33 @@ class WebSocketClient {
         };
         
         this.ws.onerror = (error) => {
-            console.error('WebSocket error:', error);
+            console.error('❌ WebSocket error:', error);
+            console.error('WebSocket URL:', wsUrl);
+            console.error('WebSocket readyState:', this.ws?.readyState);
+            
+            // Специальная обработка для ngrok
+            if (window.location.host.includes('ngrok') || window.location.host.includes('ngrok-free.app')) {
+                console.error('🔗 Ошибка WebSocket через ngrok. Убедитесь что ngrok запущен с флагом --host-header=rewrite');
+                console.error('Пример: ngrok http 8000 --host-header=rewrite');
+            }
         };
         
         this.ws.onclose = (event) => {
-            console.log('WebSocket disconnected:', event.code);
+            console.log('🔌 WebSocket disconnected:', event.code, event.reason);
             this.isConnected = false;
             setRealtimeIndicator(false);
+            
+            // Логируем причину отключения
+            if (event.code === 1006) {
+                console.error('❌ WebSocket закрыт аномально (код 1006). Возможные причины:');
+                console.error('- Проблемы с сетью');
+                console.error('- Сервер недоступен');
+                console.error('- Проблемы с ngrok (если используется)');
+            } else if (event.code === 1011) {
+                console.error('❌ WebSocket закрыт сервером из-за ошибки (код 1011)');
+            } else if (event.code === 1000) {
+                console.log('✅ WebSocket закрыт нормально');
+            }
             
             if (event.code !== 1000 && this.reconnectAttempts < this.maxReconnectAttempts) {
                 this.reconnect();
@@ -175,6 +328,9 @@ class WebSocketClient {
             this.ws.close(1000);
         }
         
+        // Останавливаем HTTP polling если используется
+        this.stopPolling();
+        
         // Очищаем все анимации прогресса
         this.stopScrapingProgressAnimation();
         this.stopDuplicateProgressAnimation();
@@ -183,6 +339,9 @@ class WebSocketClient {
     send(data) {
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
             this.ws.send(JSON.stringify(data));
+        } else if (this.pollingInterval) {
+            // Для HTTP polling игнорируем send, так как мы используем обычные HTTP запросы
+            console.log('📡 HTTP polling режим: игнорируем WebSocket send:', data);
         }
     }
     
@@ -795,16 +954,30 @@ class WebSocketClient {
 
 // Функция для управления индикатором real-time соединения
 function setRealtimeIndicator(connected) {
+    console.log(`🔴🟢 setRealtimeIndicator вызван с: ${connected ? 'подключен' : 'отключен'}`);
     const indicator = document.getElementById('realtime-indicator');
+    console.log(`🔴🟢 Индикатор элемент:`, indicator ? 'найден' : 'НЕ НАЙДЕН');
+    
     if (indicator) {
         if (connected) {
             indicator.classList.remove('disconnected');
             indicator.classList.add('connected');
-            indicator.title = 'WebSocket соединение активно';
+            indicator.title = 'HTTP polling активен (ngrok режим)';
+            console.log('🟢 Индикатор установлен в подключенное состояние');
         } else {
             indicator.classList.remove('connected');
             indicator.classList.add('disconnected');
-            indicator.title = 'Нет WebSocket соединения';
+            indicator.title = 'Нет соединения';
+            console.log('🔴 Индикатор установлен в отключенное состояние');
         }
+        
+        // Логируем текущие классы
+        console.log('🔴🟢 Текущие классы индикатора:', indicator.className);
+    } else {
+        console.error('❌ Элемент realtime-indicator не найден в DOM!');
+        
+        // Попробуем найти все элементы с похожими ID
+        const allElements = document.querySelectorAll('[id*="indicator"]');
+        console.log('🔍 Найдены элементы с "indicator" в ID:', allElements);
     }
 } 

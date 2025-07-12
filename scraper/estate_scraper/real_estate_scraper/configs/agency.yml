@@ -2,7 +2,7 @@ name: "Agency"
 source_name: "agency.kg"
 spider_type: "html"
 parse_all_listings: false
-max_items_limit: 100
+max_items_limit: 10
 
 base_url: "https://www.agency.kg/"
 

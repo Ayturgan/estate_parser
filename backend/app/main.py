@@ -43,6 +43,42 @@ except:
     redis_client = None
     logger.warning("Redis not available, using memory cache only")
 
+def create_default_admin():
+    """Создает админа по умолчанию при первом запуске"""
+    try:
+        from app.services.auth_service import AuthService
+        from app.database.models import AdminCreate
+        
+        # Создаем сессию БД
+        db = SessionLocal()
+        auth_service = AuthService()
+        
+        # Проверяем, существует ли админ с username "Admin"
+        existing_admin = db.query(db_models.DBAdmin).filter(
+            db_models.DBAdmin.username == "Adminn"
+        ).first()
+        
+        if existing_admin:
+            logger.info("Default admin already exists, skipping creation")
+            return
+        
+        # Создаем админа по умолчанию
+        admin_data = AdminCreate(
+            username="Adminn",
+            password="admin2025",
+            full_name="Administrator"
+        )
+        
+        auth_service.create_admin(db, admin_data)
+        logger.info("✅ Default admin created: username=Admin, password=admin2025")
+        
+    except Exception as e:
+        logger.error(f"❌ Error creating default admin: {e}")
+        raise e
+    finally:
+        if 'db' in locals():
+            db.close()
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Управление жизненным циклом приложения"""
@@ -60,6 +96,11 @@ async def lifespan(app: FastAPI):
         from app.services.settings_service import settings_service
         settings_service.initialize_default_settings()
         logger.info("✅ Default settings initialized successfully!")
+        
+        # Создание админа по умолчанию
+        logger.info("Creating default admin...")
+        create_default_admin()
+        logger.info("✅ Default admin created/verified successfully!")
     except Exception as e:
         logger.error(f"❌ Error creating database tables: {e}")
         raise e

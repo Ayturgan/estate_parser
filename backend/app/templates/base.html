@@ -127,16 +127,55 @@
     <!-- Bootstrap JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <!-- Custom JS (ПЕРВЫМ!) -->
-    <script src="/static/js/main.js?v=2.1"></script>
+    <script src="/static/js/main.js?v=2.2"></script>
+    
+    <script>
+        // Автоматическая синхронизация токена из cookie в localStorage
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('🔄 Синхронизация токена из cookie...');
+            
+            // Проверяем, есть ли токен в localStorage
+            let token = localStorage.getItem('auth_token');
+            console.log('🔑 Токен в localStorage:', token ? '✅ Есть' : '❌ Нет');
+            
+            // Если токена нет в localStorage, пытаемся извлечь его из cookie
+            if (!token) {
+                const wsTokenCookie = getCookie('ws_token');
+                console.log('🔑 Токен в cookie ws_token:', wsTokenCookie ? '✅ Есть' : '❌ Нет');
+                
+                if (wsTokenCookie) {
+                    console.log('🔑 Синхронизируем токен из cookie в localStorage');
+                    setAuthToken(wsTokenCookie);
+                    token = wsTokenCookie;
+                }
+            }
+            
+            // Создаем WebSocket клиент если есть токен
+            if (token) {
+                console.log('🔑 Токен найден, создаем WebSocket клиент');
+                if (typeof WebSocketClient !== 'undefined') {
+                    window.realtimeClient = new WebSocketClient();
+                    console.log('✅ WebSocket клиент создан');
+                } else {
+                    console.log('⚠️ WebSocketClient не загружен, загружаем...');
+                    // Динамически загружаем WebSocket скрипт
+                    const script = document.createElement('script');
+                    script.src = '/static/js/websocket.js?v=1.7';
+                    script.onload = function() {
+                        window.realtimeClient = new WebSocketClient();
+                        console.log('✅ WebSocket клиент создан после динамической загрузки');
+                    };
+                    document.head.appendChild(script);
+                }
+            } else {
+                console.log('❌ Токен не найден, WebSocket клиент не создан');
+            }
+        });
+    </script>
     
     {% if current_admin %}
     <!-- WebSocket Real-time client -->
-    <script src="/static/js/websocket.js?v=1.5"></script>
-    <script>
-        // Создаем глобальный экземпляр WebSocket клиента
-        window.realtimeClient = new WebSocketClient();
-        console.log('✅ WebSocket клиент создан');
-    </script>
+    <script src="/static/js/websocket.js?v=1.7"></script>
     {% endif %}
     
     {% block scripts %}{% endblock %}

@@ -109,10 +109,14 @@ function createDeduplicationChart(statsData) {
     const ctx = document.getElementById('deduplicationChart');
     if (!ctx) return;
     
+    // Убеждаемся, что данные являются числами
+    const uniqueAds = Number(statsData.total_unique_ads || 0);
+    const duplicates = Number(statsData.total_duplicates || 0);
+    
     // Обновление данных графика
     if (window.dashboardCharts && window.dashboardCharts.deduplicationChart) {
         const chart = window.dashboardCharts.deduplicationChart;
-        chart.data.datasets[0].data = [statsData.total_unique_ads, statsData.total_duplicates];
+        chart.data.datasets[0].data = [uniqueAds, duplicates];
         chart.update();
         return;
     }
@@ -123,7 +127,7 @@ function createDeduplicationChart(statsData) {
         data: {
             labels: ['Уникальные', 'Дубликаты'],
             datasets: [{
-                data: [statsData.total_unique_ads, statsData.total_duplicates],
+                data: [uniqueAds, duplicates],
                 backgroundColor: ['#198754', '#ffc107']
             }]
         },
@@ -164,10 +168,7 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // Настройка WebSocket событий для дашборда
         if (window.realtimeClient) { 
-            console.log("Подписываемся на события WebSocket для дашборда...");
-            
             window.realtimeClient.on('stats_update', function(data) {
-                console.log("📊 Получено обновление статистики через WebSocket:", data);
                 if (data.sources_stats) {
                     createSourcesChart(data.sources_stats);
                 }

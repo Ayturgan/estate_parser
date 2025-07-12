@@ -443,10 +443,23 @@ class DatabasePipeline:
             "photos": photos,
             "attributes": adapter.get("attributes") or {},
             "published_at": published_at,
+            # Добавляем данные классификации из конфигов
+            "property_type": adapter.get("property_type"),
+            "listing_type": adapter.get("listing_type"),
 
         }
         
+        # 🔍 ДИАГНОСТИКА: Логируем property_type и listing_type из adapter
+        spider.logger.info(f"🔍 DIAGNOSTIC: adapter.get('property_type') = {adapter.get('property_type')}")
+        spider.logger.info(f"🔍 DIAGNOSTIC: adapter.get('listing_type') = {adapter.get('listing_type')}")
+        spider.logger.info(f"🔍 DIAGNOSTIC: payload property_type = {payload.get('property_type')}")
+        spider.logger.info(f"🔍 DIAGNOSTIC: payload listing_type = {payload.get('listing_type')}")
+        
         payload = {k: v for k, v in payload.items() if v not in [None, ""]}
+        
+        # 🔍 ДИАГНОСТИКА: Логируем после фильтрации
+        spider.logger.info(f"🔍 DIAGNOSTIC: После фильтрации - payload property_type = {payload.get('property_type')}")
+        spider.logger.info(f"🔍 DIAGNOSTIC: После фильтрации - payload listing_type = {payload.get('listing_type')}")
 
         # 🤖 AI обработка и извлечение данных
         spider.logger.info(f"🔍 AI Debug: AI_ENABLED={AI_ENABLED}, ai_extractor={ai_extractor is not None if ai_extractor else 'None'}")
@@ -499,6 +512,10 @@ class DatabasePipeline:
                 payload.update(enhanced_data)
                 spider.logger.info(f"✅ AI enhancement completed for: {ai_title[:50]}... | Updated payload keys: {list(enhanced_data.keys())}")
                 
+                # 🔍 ДИАГНОСТИКА: Логируем после AI обработки
+                spider.logger.info(f"🔍 DIAGNOSTIC: После AI - payload property_type = {payload.get('property_type')}")
+                spider.logger.info(f"🔍 DIAGNOSTIC: После AI - payload listing_type = {payload.get('listing_type')}")
+                
             except Exception as e:
                 spider.logger.error(f"❌ AI enhancement failed: {e}")
                 scraping_logger.log_error(f"AI enhancement failed", f"Title: {title}", e)
@@ -511,6 +528,8 @@ class DatabasePipeline:
         # 🔍 Логирование финального payload перед отправкой
         spider.logger.info(f"🔍 Final payload being sent to API:")
         spider.logger.info(f"  📝 Title: {payload.get('title', 'N/A')}")
+        spider.logger.info(f"🔍 DIAGNOSTIC: ФИНАЛЬНЫЙ - payload property_type = {payload.get('property_type')}")
+        spider.logger.info(f"🔍 DIAGNOSTIC: ФИНАЛЬНЫЙ - payload listing_type = {payload.get('listing_type')}")
         spider.logger.info(f"  🤖 AI Classification: property_type={payload.get('property_type')}, property_origin={payload.get('property_origin')}, listing_type={payload.get('listing_type')}")
         spider.logger.info(f"  🏠 Property Data: rooms={payload.get('rooms')}, area_sqm={payload.get('area_sqm')}, floor={payload.get('floor')}, total_floors={payload.get('total_floors')}")
         spider.logger.info(f"  🏡 Characteristics: heating={payload.get('heating')}, furniture={payload.get('furniture')}, condition={payload.get('condition')}")

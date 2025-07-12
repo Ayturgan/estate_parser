@@ -119,11 +119,8 @@ async def home_page(
         print(f"[DEBUG] selected property_type: {property_type}")
         print(f"[DEBUG] selected listing_type: {listing_type}")
 
-        # Если в базе нет данных, используем фиксированные значения из конфигов парсинга
-        if not property_types:
-            property_types = ["Квартира", "Дом", "Коммерческая недвижимость", "Комната", "Земельный участок", "Дача", "Гараж"]
-        if not listing_types:
-            listing_types = ["Продажа", "Аренда"]
+        # Используем только реальные данные из базы (без fallback)
+        # Если в базе нет данных, списки будут пустыми
 
         # Фильтрация по типу недвижимости
         if property_type:
@@ -238,17 +235,17 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
         })
     
     try:
-        # Основная статистика
-        total_unique = db.query(func.count(db_models.DBUniqueAd.id)).scalar() or 0
-        total_ads = db.query(func.count(db_models.DBAd.id)).scalar() or 0
-        total_duplicates = db.query(func.count(db_models.DBAd.id)).filter(
-            db_models.DBAd.is_duplicate == True
-        ).scalar() or 0
-        realtor_ads = db.query(func.count(db_models.DBUniqueAd.id)).filter(
-            db_models.DBUniqueAd.realtor_id.isnot(None)
-        ).scalar() or 0
+        # Основная статистика - используем тот же метод, что и в API
+        from app.utils.duplicate_processor import DuplicateProcessor
+        processor = DuplicateProcessor(db)
+        duplicate_stats = processor.get_duplicate_statistics()
+        realtor_stats = processor.get_realtor_statistics()
         
-        deduplication_ratio = (total_duplicates / total_ads) if total_ads > 0 else 0
+        total_unique = duplicate_stats['total_unique_ads']
+        total_ads = duplicate_stats['total_original_ads']
+        total_duplicates = duplicate_stats['duplicate_ads']
+        realtor_ads = realtor_stats['realtor_unique_ads']
+        deduplication_ratio = duplicate_stats['deduplication_ratio']
         
         # Статистика по источникам
         sources_stats = db.query(
@@ -605,23 +602,27 @@ async def login(
             response = RedirectResponse(url="/", status_code=302)
             
             # Устанавливаем JWT токен в cookie (httponly для безопасности)
+            # Автоматически определяем secure на основе протокола
+            is_secure = request.url.scheme == "https"
             response.set_cookie(
                 key="access_token",
                 value=f"Bearer {token.access_token}",
                 max_age=token.expires_in,
                 httponly=True,
-                secure=False,  # В продакшене должно быть True для HTTPS
+                secure=is_secure,  # True для HTTPS (ngrok), False для HTTP (localhost)
                 path="/",
                 samesite="lax"
             )
             
             # Дополнительный cookie для WebSocket (НЕ httponly)
+            # Автоматически определяем secure на основе протокола
+            is_secure = request.url.scheme == "https"
             response.set_cookie(
                 key="ws_token",
                 value=token.access_token,  # Без "Bearer "
                 max_age=token.expires_in,
                 httponly=False,  # Доступен для JavaScript
-                secure=False,
+                secure=is_secure,  # True для HTTPS (ngrok), False для HTTP (localhost)
                 path="/",
                 samesite="lax"
             )
@@ -643,8 +644,12 @@ async def logout(request: Request):
     """Выход из системы"""
     from fastapi.responses import RedirectResponse
     response = RedirectResponse(url="/", status_code=302)
-    response.delete_cookie("access_token")
-    response.delete_cookie("ws_token")
+    
+    # Удаляем cookie с правильными параметрами
+    is_secure = request.url.scheme == "https"
+    response.delete_cookie("access_token", path="/", secure=is_secure)
+    response.delete_cookie("ws_token", path="/", secure=is_secure)
+    
     return response
 
 @web_router.get("/admin/users", response_class=HTMLResponse)

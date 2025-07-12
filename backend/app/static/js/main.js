@@ -6,16 +6,28 @@ let realTimeUpdates = {};
 
 // Функции для работы с токенами авторизации
 function setAuthToken(token) {
+    console.log('🔑 setAuthToken вызван с:', token ? '✅ Токен получен' : '❌ Токен пустой');
+    console.log('🔑 Домен:', window.location.host);
+    console.log('🔑 Протокол:', window.location.protocol);
+    
     localStorage.setItem('auth_token', token);
+    console.log('🔑 Токен сохранен в localStorage');
+    
     // Также устанавливаем в cookie для совместимости
     document.cookie = `ws_token=${token}; path=/; samesite=strict`;
+    console.log('🔑 Токен сохранен в cookie');
+    
     // Отправляем событие для WebSocket клиента с токеном
     window.dispatchEvent(new CustomEvent('auth_token_received', { detail: { token } }));
+    console.log('🔑 Событие auth_token_received отправлено');
 }
 
 function getAuthToken() {
     // Единственный источник правды - localStorage
-    return localStorage.getItem('auth_token');
+    const token = localStorage.getItem('auth_token');
+    console.log('🔑 getAuthToken вызван:', token ? '✅ Токен найден' : '❌ Токен НЕ найден');
+    console.log('🔑 localStorage auth_token:', token);
+    return token;
 }
 
 function getCookie(name) {
