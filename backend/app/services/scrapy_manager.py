@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 SCRAPY_CONFIG_TO_SPIDER = {
     'stroka': 'generic_scraper',
-    'house': 'generic_scraper',
+    'house': 'generic_scraper',  # Используем обычный HTML спайдер для house
     'lalafo': 'generic_api',
     'agency': 'generic_show_more_simple',
     'an': 'generic_show_more_simple',
@@ -26,7 +26,9 @@ class ScrapyJobStatus:
     PENDING = 'ожидание'
     RUNNING = 'выполняется'
     FINISHED = 'завершено'
+    FINISHED_WITH_PARSING_ERRORS = 'завершено с ошибками парсинга'
     FAILED = 'ошибка'
+    FAILED_WITH_PARSING_ERRORS = 'ошибка парсинга'
     STOPPED = 'остановлено'
 
 class ScrapyManager:
@@ -60,8 +62,12 @@ class ScrapyManager:
                 await event_emitter.emit_scraping_progress(job_id, 0, {"status": "started"})
             elif new_status == ScrapyJobStatus.FINISHED:
                 await event_emitter.emit_scraping_completed(job_id, job.get('config', 'unknown'), {"scraped_items": 0})
+            elif new_status == ScrapyJobStatus.FINISHED_WITH_PARSING_ERRORS:
+                await event_emitter.emit_scraping_error(job_id, job.get('config', 'unknown'), "Задача завершена с ошибками парсинга")
             elif new_status == ScrapyJobStatus.FAILED:
                 await event_emitter.emit_scraping_error(job_id, job.get('config', 'unknown'), "Задача завершена с ошибкой")
+            elif new_status == ScrapyJobStatus.FAILED_WITH_PARSING_ERRORS:
+                await event_emitter.emit_scraping_error(job_id, job.get('config', 'unknown'), "Задача завершена с ошибкой парсинга")
 
     async def _append_log(self, job_id: str, line: str):
         await self.redis.rpush(f'{self.log_prefix}{job_id}', line)

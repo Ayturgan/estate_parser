@@ -26,6 +26,16 @@ playwright>=1.52.0
 pillow>=11.2.1
 imagehash>=4.3.2
 
+# Photo validation dependencies
+pytesseract>=0.3.10
+opencv-python>=4.8.0
+torch>=2.0.0
+torchvision>=0.15.0
+transformers>=4.30.0
+ultralytics>=8.0.0
+matplotlib>=3.7.0
+seaborn>=0.12.0
+
 # Caching and sessions
 redis>=6.2.0
 cachetools>=6.1.0

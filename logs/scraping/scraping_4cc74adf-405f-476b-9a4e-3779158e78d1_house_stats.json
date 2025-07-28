@@ -1,0 +1,15 @@
+{
+  "job_id": "4cc74adf-405f-476b-9a4e-3779158e78d1",
+  "config_name": "house",
+  "started_at": "2025-07-17T13:54:22.352243",
+  "items_total": 0,
+  "items_processed": 0,
+  "items_failed": 0,
+  "pages_processed": 0,
+  "api_calls_success": 0,
+  "api_calls_failed": 0,
+  "errors": [],
+  "warnings": [],
+  "finished_at": "2025-07-17T13:57:03.767191",
+  "status": "completed"
+}

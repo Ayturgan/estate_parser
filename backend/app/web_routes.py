@@ -3,7 +3,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc, distinct, or_
-from typing import Optional
+from typing import Optional, List
 import json
 from datetime import datetime, timedelta
 
@@ -25,6 +25,35 @@ def get_current_admin(request: Request, db: Session):
     token_value = token.split(" ")[1]
     return auth_service.get_admin_by_token(db, token_value)
 
+def normalize_property_types(property_types: List[str]) -> List[str]:
+    """Нормализует регистр типов недвижимости для устранения дублей"""
+    if not property_types:
+        return []
+    
+    # Словарь для нормализации регистра
+    type_mapping = {
+        'дача': 'Дача',
+        'квартира': 'Квартира',
+        'дом': 'Дом',
+        'участок': 'Земельный участок',
+        'земельный участок': 'Земельный участок',
+        'гараж': 'Гараж',
+        'коммерческая недвижимость': 'Коммерческая недвижимость',
+        'комната': 'Комната',
+    }
+    
+    normalized_types = set()
+    
+    for prop_type in property_types:
+        if not prop_type or not prop_type.strip():
+            continue
+            
+        # Нормализуем регистр
+        normalized = type_mapping.get(prop_type.strip().lower(), prop_type.strip())
+        normalized_types.add(normalized)
+    
+    return sorted(list(normalized_types))
+
 @web_router.get("/", response_class=HTMLResponse)
 async def home_page(
     request: Request,
@@ -36,15 +65,18 @@ async def home_page(
     max_price: Optional[float] = Query(None),
     min_area: Optional[float] = Query(None),
     max_area: Optional[float] = Query(None),
+    min_land_area: Optional[float] = Query(None),
+    max_land_area: Optional[float] = Query(None),
     rooms: Optional[int] = Query(None),
     has_duplicates: Optional[bool] = Query(None),
     is_realtor: Optional[bool] = Query(None),
     property_type: Optional[str] = Query(None, description="Тип недвижимости"),
     listing_type: Optional[str] = Query(None, description="Тип сделки"),
     source_name: Optional[str] = Query(None, description="Источник объявления"),
+    phone_number: Optional[str] = Query(None, description="Номер телефона"),
     sort_by: Optional[str] = Query("created_at"),
     sort_order: Optional[str] = Query("desc"),
-    limit: int = Query(20, ge=1, le=100),
+    limit: int = Query(21, ge=1, le=100),
     offset: int = Query(0, ge=0)
 ):
     """Главная страница - объявления"""
@@ -54,13 +86,11 @@ async def home_page(
         
         db_query = db.query(db_models.DBUniqueAd)
         
-        # DEBUG: Вывести все property_type и listing_type из базы до фильтрации
         all_property_types = db.query(db_models.DBUniqueAd.property_type).all()
         all_listing_types = db.query(db_models.DBUniqueAd.listing_type).all()
         print(f"[DEBUG] all_property_types (raw): {all_property_types}")
         print(f"[DEBUG] all_listing_types (raw): {all_listing_types}")
         
-        # Применяем поиск по тексту
         if query and query.strip():
             search_term = f"%{query.strip()}%"
             db_query = db_query.filter(
@@ -77,7 +107,16 @@ async def home_page(
                 )
             )
         
-        # Применяем фильтры
+        print(f"[DEBUG] phone_number parameter: '{phone_number}'")
+        if phone_number and phone_number.strip():
+            print(f"[DEBUG] Applying phone filter for: '{phone_number.strip()}'")
+            db_query = db_query.filter(
+                db_models.DBUniqueAd.phone_numbers.contains([phone_number.strip()])
+            )
+            print(f"[DEBUG] Phone filter applied")
+        else:
+            print(f"[DEBUG] No phone filter applied")
+        
         if city:
             db_query = db_query.join(db_models.DBUniqueAd.location).filter(
                 db_models.DBLocation.city.ilike(f"%{city}%")
@@ -100,6 +139,12 @@ async def home_page(
         if max_area is not None:
             db_query = db_query.filter(db_models.DBUniqueAd.area_sqm <= max_area)
         
+        if min_land_area is not None:
+            db_query = db_query.filter(db_models.DBUniqueAd.land_area_sotka >= min_land_area)
+        
+        if max_land_area is not None:
+            db_query = db_query.filter(db_models.DBUniqueAd.land_area_sotka <= max_land_area)
+        
         if rooms is not None:
             db_query = db_query.filter(db_models.DBUniqueAd.rooms == rooms)
         
@@ -109,9 +154,9 @@ async def home_page(
             else:
                 db_query = db_query.filter(db_models.DBUniqueAd.duplicates_count == 0)
         
-        # Получаем уникальные типы недвижимости и типы сделок (чистим, сортируем, убираем дубликаты)
-        property_types = db.query(db_models.DBUniqueAd.property_type).filter(db_models.DBUniqueAd.property_type.isnot(None)).all()
-        property_types = sorted(set(pt[0].strip() for pt in property_types if pt[0] and pt[0].strip()))
+        property_types_raw = db.query(db_models.DBUniqueAd.property_type).filter(db_models.DBUniqueAd.property_type.isnot(None)).all()
+        property_types_raw = [pt[0].strip() for pt in property_types_raw if pt[0] and pt[0].strip()]
+        property_types = normalize_property_types(property_types_raw)
         listing_types = db.query(db_models.DBUniqueAd.listing_type).filter(db_models.DBUniqueAd.listing_type.isnot(None)).all()
         listing_types = sorted(set(lt[0].strip() for lt in listing_types if lt[0] and lt[0].strip()))
         print(f"[DEBUG] property_types: {property_types}")
@@ -119,14 +164,20 @@ async def home_page(
         print(f"[DEBUG] selected property_type: {property_type}")
         print(f"[DEBUG] selected listing_type: {listing_type}")
 
-        # Используем только реальные данные из базы (без fallback)
-        # Если в базе нет данных, списки будут пустыми
 
         # Фильтрация по типу недвижимости
         if property_type:
             property_type_clean = property_type.strip()
             if property_type_clean in property_types:
-                db_query = db_query.filter(db_models.DBUniqueAd.property_type == property_type_clean)
+                # Создаем список возможных вариантов для поиска в БД
+                search_variants = []
+                for raw_type in property_types_raw:
+                    normalized = normalize_property_types([raw_type])
+                    if normalized and normalized[0] == property_type_clean:
+                        search_variants.append(raw_type)
+                
+                if search_variants:
+                    db_query = db_query.filter(db_models.DBUniqueAd.property_type.in_(search_variants))
         # Фильтрация по типу сделки
         if listing_type:
             listing_type_clean = listing_type.strip()
@@ -141,7 +192,6 @@ async def home_page(
         
         if is_realtor is not None:
             print(f"DEBUG: is_realtor = {is_realtor}, type = {type(is_realtor)}")
-            # Преобразуем строку в булево значение
             is_realtor_bool = str(is_realtor).lower() in ['true', '1', 'yes']
             print(f"DEBUG: is_realtor_bool = {is_realtor_bool}")
             if is_realtor_bool:
@@ -198,12 +248,15 @@ async def home_page(
                 "max_price": max_price,
                 "min_area": min_area,
                 "max_area": max_area,
+                "min_land_area": min_land_area,
+                "max_land_area": max_land_area,
                 "rooms": rooms,
                 "has_duplicates": has_duplicates,
                 "is_realtor": is_realtor,
                 "property_type": property_type,
                 "listing_type": listing_type,
                 "source_name": source_name,
+                "phone_number": phone_number,
                 "sort_by": sort_by,
                 "sort_order": sort_order
             },
@@ -235,7 +288,6 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
         })
     
     try:
-        # Основная статистика - используем тот же метод, что и в API
         from app.utils.duplicate_processor import DuplicateProcessor
         processor = DuplicateProcessor(db)
         duplicate_stats = processor.get_duplicate_statistics()
@@ -330,31 +382,31 @@ async def ads_page(
     max_price: Optional[float] = Query(None),
     min_area: Optional[float] = Query(None),
     max_area: Optional[float] = Query(None),
+    min_land_area: Optional[float] = Query(None),
+    max_land_area: Optional[float] = Query(None),
     rooms: Optional[int] = Query(None),
     has_duplicates: Optional[bool] = Query(None),
     is_realtor: Optional[bool] = Query(None),
     property_type: Optional[str] = Query(None, description="Тип недвижимости"),
     listing_type: Optional[str] = Query(None, description="Тип сделки"),
     source_name: Optional[str] = Query(None, description="Источник объявления"),
+    phone_number: Optional[str] = Query(None, description="Номер телефона"),
     sort_by: Optional[str] = Query("created_at"),
     sort_order: Optional[str] = Query("desc"),
-    limit: int = Query(20, ge=1, le=100),
+    limit: int = Query(21, ge=1, le=100),
     offset: int = Query(0, ge=0)
 ):
     """Страница просмотра объявлений"""
     try:
-        # Получаем текущего пользователя для навигации
         current_admin = get_current_admin(request, db)
         
         db_query = db.query(db_models.DBUniqueAd)
         
-        # Приведение параметра is_realtor к булеву типу (важно для корректной фильтрации)
         if isinstance(is_realtor, str):
             is_realtor_bool = is_realtor.lower() in ['true', '1', 'yes']
         else:
             is_realtor_bool = bool(is_realtor) if is_realtor is not None else None
         
-        # Применяем поиск по тексту
         if query and query.strip():
             search_term = f"%{query.strip()}%"
             db_query = db_query.filter(
@@ -371,7 +423,16 @@ async def ads_page(
                 )
             )
         
-        # Применяем фильтры
+        print(f"[DEBUG] phone_number parameter: '{phone_number}'")
+        if phone_number and phone_number.strip():
+            print(f"[DEBUG] Applying phone filter for: '{phone_number.strip()}'")
+            db_query = db_query.filter(
+                db_models.DBUniqueAd.phone_numbers.contains([phone_number.strip()])
+            )
+            print(f"[DEBUG] Phone filter applied")
+        else:
+            print(f"[DEBUG] No phone filter applied")
+        
         if city:
             db_query = db_query.join(db_models.DBUniqueAd.location).filter(
                 db_models.DBLocation.city.ilike(f"%{city}%")
@@ -394,6 +455,12 @@ async def ads_page(
         if max_area is not None:
             db_query = db_query.filter(db_models.DBUniqueAd.area_sqm <= max_area)
         
+        if min_land_area is not None:
+            db_query = db_query.filter(db_models.DBUniqueAd.land_area_sotka >= min_land_area)
+        
+        if max_land_area is not None:
+            db_query = db_query.filter(db_models.DBUniqueAd.land_area_sotka <= max_land_area)
+        
         if rooms is not None:
             db_query = db_query.filter(db_models.DBUniqueAd.rooms == rooms)
         
@@ -403,9 +470,9 @@ async def ads_page(
             else:
                 db_query = db_query.filter(db_models.DBUniqueAd.duplicates_count == 0)
         
-        # Получаем уникальные типы недвижимости и типы сделок (чистим, сортируем, убираем дубликаты)
-        property_types = db.query(db_models.DBUniqueAd.property_type).filter(db_models.DBUniqueAd.property_type.isnot(None)).all()
-        property_types = sorted(set(pt[0].strip() for pt in property_types if pt[0] and pt[0].strip()))
+        property_types_raw = db.query(db_models.DBUniqueAd.property_type).filter(db_models.DBUniqueAd.property_type.isnot(None)).all()
+        property_types_raw = [pt[0].strip() for pt in property_types_raw if pt[0] and pt[0].strip()]
+        property_types = normalize_property_types(property_types_raw)
         listing_types = db.query(db_models.DBUniqueAd.listing_type).filter(db_models.DBUniqueAd.listing_type.isnot(None)).all()
         listing_types = sorted(set(lt[0].strip() for lt in listing_types if lt[0] and lt[0].strip()))
         print(f"[DEBUG] property_types: {property_types}")
@@ -413,44 +480,45 @@ async def ads_page(
         print(f"[DEBUG] selected property_type: {property_type}")
         print(f"[DEBUG] selected listing_type: {listing_type}")
 
-        # Если в базе нет данных, используем фиксированные значения из конфигов парсинга
         if not property_types:
             property_types = ["Квартира", "Дом", "Коммерческая недвижимость", "Комната", "Земельный участок", "Дача", "Гараж"]
         if not listing_types:
             listing_types = ["Продажа", "Аренда"]
 
-        # Фильтрация по типу недвижимости
         if property_type:
             property_type_clean = property_type.strip()
             if property_type_clean in property_types:
-                db_query = db_query.filter(db_models.DBUniqueAd.property_type == property_type_clean)
-        # Фильтрация по типу сделки
+                # Создаем список возможных вариантов для поиска в БД
+                search_variants = []
+                for raw_type in property_types_raw:
+                    normalized = normalize_property_types([raw_type])
+                    if normalized and normalized[0] == property_type_clean:
+                        search_variants.append(raw_type)
+                
+                if search_variants:
+                    db_query = db_query.filter(db_models.DBUniqueAd.property_type.in_(search_variants))
         if listing_type:
             listing_type_clean = listing_type.strip()
             if listing_type_clean in listing_types:
                 db_query = db_query.filter(db_models.DBUniqueAd.listing_type == listing_type_clean)
         
-        # Фильтрация по источнику
         if source_name:
             db_query = db_query.join(db_models.DBAd, db_models.DBUniqueAd.base_ad_id == db_models.DBAd.id).filter(
                 db_models.DBAd.source_name == source_name
             )
         
-        # Фильтрация по риэлторам
         if is_realtor_bool is not None:
             if is_realtor_bool:
                 db_query = db_query.filter(db_models.DBUniqueAd.realtor_id.isnot(None))
             else:
                 db_query = db_query.filter(db_models.DBUniqueAd.realtor_id.is_(None))
         
-        # Сортировка
         sort_column = getattr(db_models.DBUniqueAd, sort_by, db_models.DBUniqueAd.created_at)
         if sort_order == "desc":
             db_query = db_query.order_by(desc(sort_column))
         else:
             db_query = db_query.order_by(sort_column)
         
-        # Пагинация
         total = db_query.count()
         ads = db_query.offset(offset).limit(limit).all()
         print(f"[DEBUG] total ads after filter: {total}")
@@ -465,7 +533,6 @@ async def ads_page(
         ).all()
         districts = [d[0] for d in districts if d[0]]
         
-        # Получаем список источников
         sources = db.query(distinct(db_models.DBAd.source_name)).filter(
             db_models.DBAd.source_name.isnot(None)
         ).all()
@@ -490,12 +557,15 @@ async def ads_page(
                 "max_price": max_price,
                 "min_area": min_area,
                 "max_area": max_area,
+                "min_land_area": min_land_area,
+                "max_land_area": max_land_area,
                 "rooms": rooms,
                 "has_duplicates": has_duplicates,
                 "is_realtor": is_realtor,
                 "property_type": property_type,
                 "listing_type": listing_type,
                 "source_name": source_name,
+                "phone_number": phone_number,
                 "sort_by": sort_by,
                 "sort_order": sort_order
             },
@@ -518,7 +588,6 @@ async def ads_page(
 @web_router.get("/automation", response_class=HTMLResponse)
 async def automation_page(request: Request, db: Session = Depends(get_db)):
     """Страница автоматизации"""
-    # Проверка авторизации
     current_admin = get_current_admin(request, db)
     if not current_admin:
         return templates.TemplateResponse("login.html", {
@@ -526,10 +595,8 @@ async def automation_page(request: Request, db: Session = Depends(get_db)):
             "error": "Необходима авторизация для доступа к автоматизации"
         })
     
-    # Получаем данные конфигурации из настроек БД
     from app.services.settings_service import settings_service
     
-    # Конфигурация автоматизации
     is_auto_mode = settings_service.get_setting('auto_mode', True)
     
     interval_minutes = settings_service.get_setting('pipeline_interval_minutes', 180)
@@ -560,7 +627,6 @@ async def automation_page(request: Request, db: Session = Depends(get_db)):
 @web_router.get("/settings", response_class=HTMLResponse)
 async def settings_page(request: Request, db: Session = Depends(get_db)):
     """Страница настроек системы"""
-    # Проверка авторизации
     current_admin = get_current_admin(request, db)
     if not current_admin:
         return templates.TemplateResponse("login.html", {
@@ -600,9 +666,6 @@ async def login(
         if token:
             from fastapi.responses import RedirectResponse
             response = RedirectResponse(url="/", status_code=302)
-            
-            # Устанавливаем JWT токен в cookie (httponly для безопасности)
-            # Автоматически определяем secure на основе протокола
             is_secure = request.url.scheme == "https"
             response.set_cookie(
                 key="access_token",
@@ -614,14 +677,12 @@ async def login(
                 samesite="lax"
             )
             
-            # Дополнительный cookie для WebSocket (НЕ httponly)
-            # Автоматически определяем secure на основе протокола
             is_secure = request.url.scheme == "https"
             response.set_cookie(
                 key="ws_token",
                 value=token.access_token,  # Без "Bearer "
                 max_age=token.expires_in,
-                httponly=False,  # Доступен для JavaScript
+                httponly=False, 
                 secure=is_secure,  # True для HTTPS (ngrok), False для HTTP (localhost)
                 path="/",
                 samesite="lax"
@@ -645,7 +706,6 @@ async def logout(request: Request):
     from fastapi.responses import RedirectResponse
     response = RedirectResponse(url="/", status_code=302)
     
-    # Удаляем cookie с правильными параметрами
     is_secure = request.url.scheme == "https"
     response.delete_cookie("access_token", path="/", secure=is_secure)
     response.delete_cookie("ws_token", path="/", secure=is_secure)
@@ -661,7 +721,7 @@ async def admin_users_page(
     error: Optional[str] = Query(None)
 ):
     """Страница управления пользователями"""
-    # Проверка авitorизации
+
     current_admin = get_current_admin(request, db)
     if not current_admin:
         return templates.TemplateResponse("login.html", {
@@ -669,10 +729,8 @@ async def admin_users_page(
             "error": "Необходима авторизация"
         })
     
-    # Получаем список всех админов
     admins = auth_service.get_all_admins(db)
     
-    # Подготавливаем сообщения на основе параметров
     success_message = None
     error_message = None
     
@@ -701,7 +759,6 @@ async def create_admin(
     from app.database.models import AdminCreate
     from fastapi.responses import RedirectResponse
     
-    # Проверка авторизации
     current_admin = get_current_admin(request, db)
     if not current_admin:
         return templates.TemplateResponse("login.html", {
@@ -717,14 +774,12 @@ async def create_admin(
         )
         new_admin = auth_service.create_admin(db, admin_data)
         
-        # Успешное создание - делаем redirect с параметром успеха
         return RedirectResponse(
             url=f"/admin/users?success=created&username={username}",
             status_code=302
         )
         
     except ValueError as e:
-        # Ошибка валидации - делаем redirect с параметром ошибки
         import urllib.parse
         error_msg = urllib.parse.quote(str(e))
         return RedirectResponse(
@@ -733,7 +788,6 @@ async def create_admin(
         )
         
     except Exception as e:
-        # Другие ошибки - делаем redirect с параметром ошибки
         import urllib.parse
         error_msg = urllib.parse.quote(f"Ошибка создания: {str(e)}")
         return RedirectResponse(
@@ -751,10 +805,8 @@ async def ad_detail_page(
 ):
     """Детальная страница объявления"""
     try:
-        # Получаем текущего пользователя для навигации
         current_admin = get_current_admin(request, db)
         
-        # Получаем уникальное объявление
         unique_ad = db.query(db_models.DBUniqueAd).filter(
             db_models.DBUniqueAd.id == ad_id
         ).first()
@@ -775,20 +827,16 @@ async def ad_detail_page(
                 "current_filters": {}
             })
         
-        # Получаем все связанные объявления (базовое + дубликаты)
         from app.utils.duplicate_processor import DuplicateProcessor
         processor = DuplicateProcessor(db)
         all_ads_info = processor.get_all_ads_for_unique(ad_id)
         
-        # Получаем базовое объявление
         base_ad = None
         if all_ads_info['base_ad']:
             base_ad = all_ads_info['base_ad'][0]
         
-        # Получаем дубликаты
         duplicates = all_ads_info['duplicates']
         
-        # Получаем информацию о риэлторе если есть
         realtor = None
         if unique_ad.realtor_id:
             realtor = db.query(db_models.DBRealtor).filter(
@@ -830,10 +878,8 @@ async def realtor_profile_page(
 ):
     """Страница профиля риэлтора"""
     try:
-        # Получаем текущего пользователя для навигации
         current_admin = get_current_admin(request, db)
         
-        # Получаем информацию о риэлторе
         realtor = db.query(db_models.DBRealtor).filter(
             db_models.DBRealtor.id == realtor_id
         ).first()
@@ -854,7 +900,6 @@ async def realtor_profile_page(
                 "current_filters": {}
             })
         
-        # Получаем объявления риэлтора
         ads_query = db.query(db_models.DBUniqueAd).filter(
             db_models.DBUniqueAd.realtor_id == realtor_id
         ).order_by(desc(db_models.DBUniqueAd.created_at))

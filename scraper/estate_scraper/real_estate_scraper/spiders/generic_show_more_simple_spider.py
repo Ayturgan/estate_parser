@@ -23,13 +23,23 @@ class GenericShowMoreSimpleSpider(scrapy.Spider):
                 "--disable-setuid-sandbox",
                 "--disable-gpu",
                 "--disable-web-security",
-                "--disable-features=VizDisplayCompositor"
+                "--disable-features=VizDisplayCompositor",
+                "--disable-background-timer-throttling",
+                "--disable-backgrounding-occluded-windows",
+                "--disable-renderer-backgrounding",
+                "--disable-ipc-flooding-protection",
+                "--memory-pressure-off",
+                "--max_old_space_size=4096"
             ]
         },
-        'PLAYWRIGHT_DEFAULT_NAVIGATION_TIMEOUT': 30000,
+        'PLAYWRIGHT_DEFAULT_NAVIGATION_TIMEOUT': 80000,  # Увеличиваем до 2 минут
         'PLAYWRIGHT_PAGE_METHODS': [
             PageMethod("wait_for_load_state", "networkidle"),
-        ]
+        ],
+        'DOWNLOAD_DELAY': 1,  # Задержка между запросами
+        'RANDOMIZE_DOWNLOAD_DELAY': True,
+        'CONCURRENT_REQUESTS': 4,  # Один запрос за раз
+        'CONCURRENT_REQUESTS_PER_DOMAIN': 4
     }
 
     def __init__(self, config=None, job_id=None, *args, **kwargs):
@@ -58,7 +68,7 @@ class GenericShowMoreSimpleSpider(scrapy.Spider):
         self.job_id = job_id or os.environ.get('SCRAPY_JOB_ID', 'unknown')
         self.config_name = os.environ.get('SCRAPY_CONFIG_NAME', config or 'unknown')
         self.scraping_logger = get_scraping_logger(self.job_id, self.config_name)
-
+        self.has_parsing_errors = False # Флаг для отслеживания ошибок парсинга
     def start_requests(self):
         """Начинает парсинг с главной страницы"""
         url = self.base_url + self.start_url
@@ -235,6 +245,7 @@ class GenericShowMoreSimpleSpider(scrapy.Spider):
             return item_data
         except Exception as e:
             self.logger.error(f"Error extracting item data: {e}")
+            self.has_parsing_errors = True
             return None
 
     def _extract_photos(self, element):
@@ -304,6 +315,7 @@ class GenericShowMoreSimpleSpider(scrapy.Spider):
                 return element.css(selector).get(default="").strip()
         except Exception as e:
             self.logger.warning(f"Error extracting field with selector '{selector}': {e}")
+            self.has_parsing_errors = True
             return None
 
     def _update_progress(self):
@@ -419,9 +431,14 @@ class GenericShowMoreSimpleSpider(scrapy.Spider):
         try:
             photos = []
             self.logger.info(f"🔍 Photo details extraction: selector = '{selector}'")
+            self.logger.info(f"🔍 Photo details extraction: response URL = '{response.url}'")
             
             image_elements = self._extract_field_elements(response, selector)
             self.logger.info(f"🔍 Photo details extraction: found {len(image_elements)} image elements")
+            
+            # Дополнительная отладка - выводим первые несколько элементов
+            for i, img_url in enumerate(image_elements[:5]):
+                self.logger.info(f"🔍 Photo details extraction: raw image {i+1} = '{img_url}'")
             
             for i, img_url in enumerate(image_elements):
                 if img_url:
@@ -443,13 +460,57 @@ class GenericShowMoreSimpleSpider(scrapy.Spider):
             return []
 
     def handle_error(self, failure):
-        """Обработка ошибок"""
+        """Обработка ошибок с retry механизмом"""
         try:
-            self.logger.error(f"Request failed: {failure.request.url}")
+            request = failure.request
+            retry_count = request.meta.get('retry_count', 0)
+            max_retries = 3
+            
+            self.logger.error(f"Request failed: {request.url}")
             self.logger.error(f"Error: {failure.value}")
+            
+            # Retry для таймаутов и сетевых ошибок
+            if retry_count < max_retries and (
+                'Timeout' in str(failure.value) or 
+                'Connection' in str(failure.value) or
+                'Network' in str(failure.value)
+            ):
+                retry_count += 1
+                self.logger.info(f"Retrying request {request.url} (attempt {retry_count}/{max_retries})")
+                
+                # Увеличиваем таймаут для retry
+                new_timeout = 120000 + (retry_count * 30000)  # +30 сек за каждую попытку
+                
+                yield scrapy.Request(
+                    request.url,
+                    callback=request.callback,
+                    meta={
+                        **request.meta,
+                        'retry_count': retry_count,
+                        'playwright': True,
+                        'playwright_include_page': True,
+                        'playwright_page_methods': [
+                            PageMethod("wait_for_load_state", "networkidle"),
+                        ]
+                    },
+                    errback=self.handle_error,
+                    dont_filter=True
+                )
+                return
+            
+            # Устанавливаем флаг ошибок парсинга при сетевых ошибках
+            error_str = str(failure.value).lower()
+            if any(network_error in error_str for network_error in [
+                'dns lookup failed', 'connection refused', 'connection timeout',
+                'network unreachable', 'host unreachable', 'request failed'
+            ]):
+                self.has_parsing_errors = True
+                self.logger.error("Network error detected, setting parsing errors flag")
+            
             if self.scraping_logger:
-                self.scraping_logger.log_request_failure(failure.request.url, str(failure.value))
+                self.scraping_logger.log_request_failure(request.url, str(failure.value))
             self.failed_items += 1
+            
         except Exception as e:
             self.logger.error(f"Error in error handler: {e}")
 
@@ -477,3 +538,10 @@ class GenericShowMoreSimpleSpider(scrapy.Spider):
             
         except Exception as e:
             self.logger.error(f"Error in spider close: {e}") 
+
+    def closed(self, reason):
+        if self.has_parsing_errors:
+            self.logger.error("Spider finished with parsing errors. Signalling failure.")
+            pass
+
+

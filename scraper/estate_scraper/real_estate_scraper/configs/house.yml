@@ -2,7 +2,7 @@ name: "house"
 source_name: "house.kg"
 spider_type: "html"
 parse_all_listings: false
-max_items_limit: 10
+max_items_limit: 5
 
 base_url: "https://www.house.kg"
 
@@ -111,6 +111,8 @@ request_settings:
   timeout: 30
   retries: 3
   user_agent_rotation: true
+  use_playwright: true  # Использовать Playwright для рендеринга JavaScript
+  playwright_wait: 3  # Ждать 3 секунды после загрузки страницы
 
 # Обработка данных
 data_processing:

@@ -19,7 +19,7 @@
             <div class="card border-0 shadow-sm">
                 <div class="card-body">
                     <div class="row align-items-center">
-                        <div class="col-md-8">
+                        <div class="col-12">
                             <h2 class="mb-0">
                                 <i class="bi bi-person-badge text-primary"></i> 
                                 {% if realtor.name %}
@@ -28,14 +28,11 @@
                                     Риэлтор {{ realtor.phone_number }}
                                 {% endif %}
                             </h2>
-                        </div>
-                        <div class="col-md-4 text-end">
-                            <div class="d-flex align-items-center justify-content-end">
-                                <div>
-                                    <div class="fw-bold text-primary fs-3">{{ realtor.total_ads_count }}</div>
-                                    <small class="text-muted">Всего объявлений</small>
-                                </div>
-                            </div>
+                            {% if realtor.company_name %}
+                                <p class="text-muted mb-0 mt-2">
+                                    <i class="bi bi-building"></i> {{ realtor.company_name }}
+                                </p>
+                            {% endif %}
                         </div>
                     </div>
                 </div>
@@ -84,23 +81,62 @@
                                             </h6>
                                             
                                             {% if ad.price %}
-                                                <div class="mb-2">
-                                                    <strong class="text-success">
+                                                <div class="ad-price mb-2">
                                                         {% if ad.currency == 'USD' %}${{ "{:,.0f}".format(ad.price) }}
                                                         {% elif ad.currency == 'SOM' %}{{ "{:,.0f}".format(ad.price) }} сом
                                                         {% elif ad.currency == 'EUR' %}€{{ "{:,.0f}".format(ad.price) }}
                                                         {% else %}{{ "{:,.0f}".format(ad.price) }} {{ ad.currency or '' }}
                                                         {% endif %}
-                                                    </strong>
                                                 </div>
+                                            {% else %}
+                                                <div class="ad-price mb-2 text-muted">Цена не указана</div>
                                             {% endif %}
                                             
-                                            <div class="text-muted small mb-3">
-                                                {% if ad.area_sqm %}{{ ad.area_sqm }} м² • {% endif %}
-                                                {% if ad.rooms %}{{ ad.rooms }} комн. • {% endif %}
-                                                {% if ad.floor %}{{ ad.floor }} этаж{% endif %}
+                                            <div class="ad-meta mb-3">
+                                                <div class="row g-2 mb-2">
+                                                    {% if ad.area_sqm %}
+                                                        <div class="col-6">
+                                                            <small class="text-muted"><i class="bi bi-arrows-angle-expand"></i> {{ ad.area_sqm }} м²</small>
+                                                        </div>
+                                                    {% endif %}
+                                                    {% if ad.land_area_sotka %}
+                                                        <div class="col-6">
+                                                            <small class="text-muted"><i class="bi bi-tree"></i> {{ ad.land_area_sotka }} соток</small>
+                                                        </div>
+                                                    {% endif %}
+                                                    {% if ad.rooms %}
+                                                        <div class="col-6">
+                                                            <small class="text-muted"><i class="bi bi-door-open"></i> {{ ad.rooms }} комн.</small>
+                                                        </div>
+                                                    {% endif %}
+                                                    {% if ad.floor %}
+                                                        <div class="col-6">
+                                                            <small class="text-muted"><i class="bi bi-building"></i> {{ ad.floor }} этаж</small>
+                                                        </div>
+                                                    {% endif %}
+                                                </div>
+                                                
                                                 {% if ad.location %}
-                                                    <br><i class="bi bi-geo-alt"></i> {{ ad.location.city }}{% if ad.location.district %}, {{ ad.location.district }}{% endif %}
+                                                    <div class="location-info">
+                                                        <small class="text-muted">
+                                                            <i class="bi bi-geo-alt"></i> 
+                                                            {{ ad.location.city }}{% if ad.location.district %}, {{ ad.location.district }}{% endif %}
+                                                        </small>
+                                                    </div>
+                                                {% endif %}
+                                                
+                                                {% if ad.building_type or ad.condition or ad.furniture %}
+                                                    <div class="characteristics mt-2">
+                                                        {% if ad.building_type %}
+                                                            <span class="badge bg-light text-dark me-1">{{ ad.building_type }}</span>
+                                                        {% endif %}
+                                                        {% if ad.condition %}
+                                                            <span class="badge bg-light text-dark me-1">{{ ad.condition }}</span>
+                                                        {% endif %}
+                                                        {% if ad.furniture %}
+                                                            <span class="badge bg-light text-dark me-1">{{ ad.furniture }}</span>
+                                                        {% endif %}
+                                                    </div>
                                                 {% endif %}
                                             </div>
                                             

@@ -40,6 +40,9 @@
                                 {% if unique_ad.area_sqm %}
                                     <li><i class="bi bi-aspect-ratio"></i> Площадь: <strong>{{ unique_ad.area_sqm }} м²</strong></li>
                                 {% endif %}
+                                {% if unique_ad.land_area_sotka %}
+                                    <li><i class="bi bi-tree"></i> Участок: <strong>{{ unique_ad.land_area_sotka }} соток</strong></li>
+                                {% endif %}
                                 {% if unique_ad.rooms %}
                                     <li><i class="bi bi-door-open"></i> Комнат: <strong>{{ unique_ad.rooms }}</strong></li>
                                 {% endif %}
@@ -267,9 +270,9 @@
 
 <!-- Модальное окно для деталей дубликата -->
 <div class="modal fade" id="duplicateModal" tabindex="-1" role="dialog" aria-labelledby="duplicateModalTitle">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-            <div class="modal-header">
+    <div class="modal-dialog modal-xl" style="max-width: 60%;">
+        <div class="modal-content" id="draggableModal">
+            <div class="modal-header" id="dragHandle" style="cursor: move;">
                 <h5 class="modal-title" id="duplicateModalTitle">Детали дубликата</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
             </div>
@@ -334,40 +337,144 @@ function showDuplicateModal(mainAdId, duplicateId) {
                 
                 bodyElement.innerHTML = `
                     <div class="row">
-                        <div class="col-md-6">
-                            <h6>Основная информация</h6>
-                            <ul class="list-unstyled">
-                                ${duplicate.price ? `<li><strong>Цена:</strong> ${duplicate.price} ${duplicate.currency || ''}</li>` : ''}
-                                ${duplicate.area_sqm ? `<li><strong>Площадь:</strong> ${duplicate.area_sqm} м²</li>` : ''}
-                                ${duplicate.rooms ? `<li><strong>Комнат:</strong> ${duplicate.rooms}</li>` : ''}
-                                ${duplicate.source_name ? `<li><strong>Источник:</strong> ${duplicate.source_name}</li>` : ''}
-                                ${duplicate.created_at ? `<li><strong>Добавлено:</strong> ${new Date(duplicate.created_at).toLocaleDateString('ru-RU')}</li>` : ''}
-                            </ul>
-                        </div>
-                        <div class="col-md-6">
-                            ${duplicate.location ? `
-                                <h6>Адрес</h6>
-                                <p>${duplicate.location.city || ''} ${duplicate.location.district || ''}</p>
-                                ${duplicate.location.address ? `<p><small>${duplicate.location.address}</small></p>` : ''}
+                        <div class="col-md-8">
+                            <!-- Заголовок и цена -->
+                            <div class="mb-4">
+                                <h3 class="text-primary">${duplicate.title || 'Без названия'}</h3>
+                                ${duplicate.price ? `
+                                    <h2 class="text-success">
+                                        ${duplicate.currency === 'USD' ? '$' + duplicate.price.toLocaleString() : 
+                                          duplicate.currency === 'SOM' ? duplicate.price.toLocaleString() + ' сом' :
+                                          duplicate.currency === 'EUR' ? '€' + duplicate.price.toLocaleString() :
+                                          duplicate.price + ' ' + (duplicate.currency || '')}
+                                    </h2>
+                                ` : ''}
+                            </div>
+                            
+                            <!-- Описание -->
+                            ${duplicate.description ? `
+                                <div class="mb-4">
+                                    <h6><i class="bi bi-card-text"></i> Описание</h6>
+                                    <p class="text-muted">${duplicate.description}</p>
+                                </div>
                             ` : ''}
+                            
+                            <!-- Основные характеристики -->
+                            <div class="row mb-4">
+                                <div class="col-md-6">
+                                    <h6><i class="bi bi-info-circle"></i> Основные характеристики</h6>
+                                    <ul class="list-unstyled">
+                                        ${duplicate.area_sqm ? `<li><i class="bi bi-aspect-ratio"></i> Площадь: <strong>${duplicate.area_sqm} м²</strong></li>` : ''}
+                                        ${duplicate.land_area_sotka ? `<li><i class="bi bi-tree"></i> Участок: <strong>${duplicate.land_area_sotka} соток</strong></li>` : ''}
+                                        ${duplicate.rooms ? `<li><i class="bi bi-door-open"></i> Комнат: <strong>${duplicate.rooms}</strong></li>` : ''}
+                                        ${duplicate.floor ? `<li><i class="bi bi-building"></i> Этаж: <strong>${duplicate.floor}${duplicate.total_floors ? '/' + duplicate.total_floors : ''}</strong></li>` : ''}
+                                        ${duplicate.property_type ? `<li><i class="bi bi-house"></i> Тип: <strong>${duplicate.property_type}</strong></li>` : ''}
+                                        ${duplicate.listing_type ? `<li><i class="bi bi-tag"></i> Сделка: <strong>${duplicate.listing_type}</strong></li>` : ''}
+                                    </ul>
+                                </div>
+                                <div class="col-md-6">
+                                    <h6><i class="bi bi-gear"></i> Дополнительные характеристики</h6>
+                                    <ul class="list-unstyled">
+                                        ${duplicate.series ? `<li><i class="bi bi-grid"></i> Серия: <strong>${duplicate.series}</strong></li>` : ''}
+                                        ${duplicate.building_type ? `<li><i class="bi bi-building"></i> Тип дома: <strong>${duplicate.building_type}</strong></li>` : ''}
+                                        ${duplicate.condition ? `<li><i class="bi bi-tools"></i> Состояние: <strong>${duplicate.condition}</strong></li>` : ''}
+                                        ${duplicate.furniture ? `<li><i class="bi bi-chair"></i> Мебель: <strong>${duplicate.furniture}</strong></li>` : ''}
+                                        ${duplicate.heating ? `<li><i class="bi bi-thermometer-half"></i> Отопление: <strong>${duplicate.heating}</strong></li>` : ''}
+                                        ${duplicate.hot_water ? `<li><i class="bi bi-droplet"></i> Горячая вода: <strong>${duplicate.hot_water}</strong></li>` : ''}
+                                        ${duplicate.gas ? `<li><i class="bi bi-fire"></i> Газ: <strong>${duplicate.gas}</strong></li>` : ''}
+                                        ${duplicate.ceiling_height ? `<li><i class="bi bi-arrow-up"></i> Высота потолков: <strong>${duplicate.ceiling_height} м</strong></li>` : ''}
+                                    </ul>
+                                </div>
+                            </div>
+                            
+                            <!-- Фотографии -->
                             ${duplicate.photos && duplicate.photos.length > 0 ? `
-                                <h6>Фотографии</h6>
-                                <div class="row">
-                                    ${duplicate.photos.slice(0, 4).map(photo => `
-                                        <div class="col-6 mb-2">
-                                            <img src="${photo.url}" class="img-fluid rounded" style="height: 80px; width: 100%; object-fit: cover; cursor: pointer;" 
-                                                 onclick="showPhotoModal('${photo.url}')">
-                                        </div>
-                                    `).join('')}
+                                <div class="mb-4">
+                                    <h6><i class="bi bi-images"></i> Фотографии</h6>
+                                    <div class="row">
+                                        ${duplicate.photos.map(photo => `
+                                            <div class="col-lg-3 col-md-4 col-sm-6 mb-3">
+                                                <img src="${photo.url}" 
+                                                     class="img-fluid rounded shadow-sm" 
+                                                     alt="Фото" 
+                                                     style="height: 150px; width: 100%; object-fit: cover; cursor: pointer;"
+                                                     onclick="showPhotoModal('${photo.url}')"
+                                                     onerror="this.style.display='none'">
+                                            </div>
+                                        `).join('')}
+                                    </div>
                                 </div>
                             ` : ''}
+                        </div>
+                        
+                        <div class="col-md-4">
+                            <!-- Адрес -->
+                            ${duplicate.location ? `
+                                <div class="card mb-3">
+                                    <div class="card-body">
+                                        <h6 class="card-title">
+                                            <i class="bi bi-geo-alt"></i> Адрес
+                                        </h6>
+                                        <p class="card-text">
+                                            ${duplicate.location.city || ''}
+                                            ${duplicate.location.district && duplicate.location.city ? ', ' : ''}
+                                            ${duplicate.location.district || ''}
+                                            ${duplicate.location.address ? `<br><small>${duplicate.location.address}</small>` : ''}
+                                        </p>
+                                    </div>
+                                </div>
+                            ` : ''}
+                            
+                            <!-- Контактная информация -->
+                            ${duplicate.phone_numbers && duplicate.phone_numbers.length > 0 ? `
+                                <div class="card mb-3">
+                                    <div class="card-body">
+                                        <h6 class="card-title">
+                                            <i class="bi bi-telephone"></i> Контакты
+                                        </h6>
+                                        ${duplicate.phone_numbers.map(phone => `
+                                            <p class="card-text">
+                                                <a href="tel:${phone}" class="text-decoration-none">
+                                                    ${phone}
+                                                </a>
+                                            </p>
+                                        `).join('')}
+                                    </div>
+                                </div>
+                            ` : ''}
+                            
+                            <!-- Источник -->
                             ${duplicate.source_url ? `
-                                <div class="mt-3">
-                                    <a href="${duplicate.source_url}" target="_blank" class="btn btn-outline-primary btn-sm">
-                                        <i class="bi bi-box-arrow-up-right"></i> Перейти к источнику
-                                    </a>
+                                <div class="card mb-3">
+                                    <div class="card-body">
+                                        <h6 class="card-title">
+                                            <i class="bi bi-link-45deg"></i> Источник
+                                        </h6>
+                                        <p class="card-text">
+                                            ${duplicate.source_name ? `<strong>${duplicate.source_name}</strong><br>` : ''}
+                                            <a href="${duplicate.source_url}" target="_blank" class="btn btn-outline-secondary btn-sm">
+                                                <i class="bi bi-box-arrow-up-right"></i> Перейти к источнику
+                                            </a>
+                                        </p>
+                                    </div>
                                 </div>
                             ` : ''}
+                            
+                            <!-- Информация о создании -->
+                            <div class="card mb-3">
+                                <div class="card-body">
+                                    <h6 class="card-title">
+                                        <i class="bi bi-info-circle"></i> Информация
+                                    </h6>
+                                    <p class="card-text">
+                                        <small class="text-muted">
+                                            ID: ${duplicate.id}<br>
+                                            ${duplicate.created_at ? `Добавлено: ${new Date(duplicate.created_at).toLocaleDateString('ru-RU')}<br>` : ''}
+                                            ${duplicate.parsed_at ? `Обработано: ${new Date(duplicate.parsed_at).toLocaleDateString('ru-RU')}` : ''}
+                                        </small>
+                                    </p>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 `;
@@ -397,5 +504,89 @@ function showDuplicateModal(mainAdId, duplicateId) {
         this.removeAttribute('aria-hidden');
     });
 }
+
+// Функция для перетаскивания модального окна
+function makeModalDraggable() {
+    const modal = document.getElementById('duplicateModal');
+    const modalContent = document.getElementById('draggableModal');
+    const dragHandle = document.getElementById('dragHandle');
+    
+    if (!modal || !modalContent || !dragHandle) return;
+    
+    let isDragging = false;
+    let currentX;
+    let currentY;
+    let initialX;
+    let initialY;
+    let xOffset = 0;
+    let yOffset = 0;
+    
+    // Функция для получения позиции элемента
+    function getPosition(element) {
+        const rect = element.getBoundingClientRect();
+        return {
+            x: rect.left + window.pageXOffset,
+            y: rect.top + window.pageYOffset
+        };
+    }
+    
+    // Функция для установки позиции элемента
+    function setPosition(element, x, y) {
+        element.style.transform = `translate(${x}px, ${y}px)`;
+    }
+    
+    // Обработчик начала перетаскивания
+    function dragStart(e) {
+        if (e.target.closest('.btn-close')) return; // Не перетаскивать при клике на кнопку закрытия
+        
+        initialX = e.clientX - xOffset;
+        initialY = e.clientY - yOffset;
+        
+        if (e.target === dragHandle || dragHandle.contains(e.target)) {
+            isDragging = true;
+            dragHandle.style.cursor = 'grabbing';
+        }
+    }
+    
+    // Обработчик перетаскивания
+    function drag(e) {
+        if (isDragging) {
+            e.preventDefault();
+            
+            currentX = e.clientX - initialX;
+            currentY = e.clientY - initialY;
+            
+            xOffset = currentX;
+            yOffset = currentY;
+            
+            setPosition(modalContent, currentX, currentY);
+        }
+    }
+    
+    // Обработчик окончания перетаскивания
+    function dragEnd() {
+        initialX = currentX;
+        initialY = currentY;
+        isDragging = false;
+        dragHandle.style.cursor = 'move';
+    }
+    
+    // Добавляем обработчики событий
+    dragHandle.addEventListener('mousedown', dragStart);
+    document.addEventListener('mousemove', drag);
+    document.addEventListener('mouseup', dragEnd);
+    
+    // Сброс позиции при открытии модального окна
+    modal.addEventListener('show.bs.modal', function() {
+        xOffset = 0;
+        yOffset = 0;
+        setPosition(modalContent, 0, 0);
+    });
+}
+
+// Инициализация перетаскивания при загрузке страницы
+document.addEventListener('DOMContentLoaded', function() {
+    makeModalDraggable();
+});
 </script>
 {% endblock %} 

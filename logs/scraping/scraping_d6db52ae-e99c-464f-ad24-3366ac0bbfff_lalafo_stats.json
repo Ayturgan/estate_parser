@@ -1,0 +1,16 @@
+{
+  "job_id": "d6db52ae-e99c-464f-ad24-3366ac0bbfff",
+  "config_name": "lalafo",
+  "started_at": "2025-07-28T05:10:15.109859",
+  "items_total": 0,
+  "items_processed": 0,
+  "items_failed": 0,
+  "pages_processed": 0,
+  "api_calls_success": 0,
+  "api_calls_failed": 0,
+  "errors": [],
+  "warnings": [],
+  "finished_at": "2025-07-28T05:16:40.649163",
+  "status": "completed_with_parsing_errors",
+  "final_error": "Задача завершена, но обнаружены ошибки парсинга"
+}

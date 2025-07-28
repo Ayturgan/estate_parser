@@ -51,7 +51,7 @@ def to_iso(dt):
 class AutomationService:
     """Сервис автоматизации с управлением через веб-интерфейс"""
     
-    def __init__(self, api_base_url: str = "http://localhost:8000"):
+    def __init__(self, api_base_url: str = "http://api:8000"):
         self.api_base_url = api_base_url
         self.session: Optional[aiohttp.ClientSession] = None
         self.pipeline_status = PipelineStatus.IDLE
@@ -397,7 +397,7 @@ class AutomationService:
                             data = await response.json()
                             status = data.get('status', 'unknown')
                             
-                            if status in ['завершено', 'ошибка', 'остановлено']:
+                            if status in ['завершено', 'завершено с ошибками парсинга', 'ошибка', 'ошибка парсинга', 'остановлено']:
                                 completed_jobs.add(job_id)
                                 progress["sources_active"] -= 1
                                 progress["sources_completed"] += 1
@@ -405,6 +405,10 @@ class AutomationService:
                                 if status == 'завершено':
                                     progress["completed"] += 1
                                     logger.info(f"Парсинг {source}: завершен успешно")
+                                elif status == 'завершено с ошибками парсинга':
+                                    progress["completed"] += 1
+                                    progress["failed"] += 1  # Учитываем как частичную ошибку
+                                    logger.info(f"Парсинг {source}: завершен с ошибками парсинга")
                                 else:
                                     progress["failed"] += 1
                                     logger.info(f"Парсинг {source}: завершен с ошибкой ({status})")

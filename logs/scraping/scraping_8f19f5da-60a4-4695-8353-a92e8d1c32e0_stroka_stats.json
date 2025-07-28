@@ -1,0 +1,15 @@
+{
+  "job_id": "8f19f5da-60a4-4695-8353-a92e8d1c32e0",
+  "config_name": "stroka",
+  "started_at": "2025-07-27T06:54:25.361284",
+  "items_total": 0,
+  "items_processed": 0,
+  "items_failed": 0,
+  "pages_processed": 0,
+  "api_calls_success": 0,
+  "api_calls_failed": 0,
+  "errors": [],
+  "warnings": [],
+  "finished_at": "2025-07-27T06:56:41.636066",
+  "status": "completed"
+}

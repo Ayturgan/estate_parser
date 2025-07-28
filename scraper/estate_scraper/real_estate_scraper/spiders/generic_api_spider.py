@@ -47,6 +47,13 @@ class UniversalSpider(scrapy.Spider):
         self.max_items_limit = int(self.config.get("max_items_limit", 100))
         self.scraped_items_count = 0
         self.category_items_count = {}  # Счетчик по категориям
+        self.has_parsing_errors = False # Флаг для отслеживания ошибок парсинга
+        
+        # Настройки детального API
+        self.detail_api = self.config.get("detail_api", {})
+        self.detail_api_enabled = self.detail_api.get("enabled", False)
+        self.common_params_mapping = self.detail_api.get("common_params_mapping", {})
+        self.property_type_params_mapping = self.detail_api.get("property_type_params_mapping", {})
         
         # Счетчики для прогресса
         self.total_items_expected = 0
@@ -253,6 +260,7 @@ class UniversalSpider(scrapy.Spider):
         except ValueError as e:
             self.logger.error(f"Invalid JSON in response from {response.url}: {e}")
             self.logger.debug(f"Response text: {response.text[:500]}...")
+            self.has_parsing_errors = True
             return
 
         # Получаем список объявлений
@@ -279,15 +287,21 @@ class UniversalSpider(scrapy.Spider):
             try:
                 processed_item = self._process_api_item(item, category)
                 if processed_item:
-                    items_processed += 1
-                    self.scraped_items_count += 1  # Общий счетчик для статистики
-                    self.category_items_count[category_name] += 1  # Счетчик по категории
-                    
-                    # Обновляем прогресс каждые N элементов
-                    if self.scraped_items_count % self.progress_update_interval == 0:
-                        self._update_progress()
-                    
-                    yield processed_item
+                    # Если детальный API включен, processed_item будет генератором запросов
+                    if self.detail_api_enabled and hasattr(processed_item, '__iter__'):
+                        # Это генератор запросов к детальному API
+                        yield from processed_item
+                    else:
+                        # Обычный элемент без детального API
+                        items_processed += 1
+                        self.scraped_items_count += 1  # Общий счетчик для статистики
+                        self.category_items_count[category_name] += 1  # Счетчик по категории
+                        
+                        # Обновляем прогресс каждые N элементов
+                        if self.scraped_items_count % self.progress_update_interval == 0:
+                            self._update_progress()
+                        
+                        yield processed_item
                     
             except Exception as e:
                 self.logger.error(f"Error processing item: {e}")
@@ -317,9 +331,15 @@ class UniversalSpider(scrapy.Spider):
             for output_field, input_path in item_fields.items():
                 try:
                     value = self._get_nested_value(item, input_path)
+                    
+                    # Преобразуем source_id в строку
+                    if output_field == 'source_id' and value is not None:
+                        value = str(value)
+                    
                     result[output_field] = value
                 except Exception as e:
                     self.logger.warning(f"Error processing field '{output_field}': {e}")
+                    self.has_parsing_errors = True
                     result[output_field] = None
             
             # Построение полного URL объявления
@@ -331,11 +351,192 @@ class UniversalSpider(scrapy.Spider):
             
             # Валидация и очистка
             validated_result = self._validate_and_clean_item(result)
-            return validated_result
+            
+            # Если включен детальный API и есть source_id, делаем запрос к детальному API
+            if self.detail_api_enabled and validated_result and validated_result.get('source_id'):
+                return self._request_detail_api(validated_result, category)
+            else:
+                return validated_result
             
         except Exception as e:
             self.logger.error(f"Error processing API item: {e}")
             return None
+
+    def _request_detail_api(self, item, category):
+        """Делает запрос к детальному API для получения дополнительной информации"""
+        try:
+            source_id = item.get('source_id')
+            if not source_id:
+                self.logger.warning(f"No source_id found for item: {item.get('title', 'Unknown')}")
+                return item
+            
+            # Строим URL детального API
+            detail_url_format = self.detail_api.get('url_format', '')
+            if not detail_url_format:
+                self.logger.warning("No detail API URL format configured")
+                return item
+            
+            detail_url = detail_url_format.format(source_id=source_id)
+            
+            self.logger.info(f"🔍 Запрашиваем детальную информацию для объявления {source_id}: {detail_url}")
+            
+            # Используем те же заголовки что и для основного API
+            headers = {
+                'Accept': 'application/json, text/plain, */*',
+                'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'X-Requested-With': 'XMLHttpRequest',
+                'Cache-Control': 'no-cache',
+                'Pragma': 'no-cache',
+                'device': 'pc',
+                'country-id': '12',
+                'language': 'ru_RU'
+            }
+            
+            # Добавляем реферар если есть
+            if category.get('referer'):
+                headers['Referer'] = category['referer']
+            
+            yield scrapy.Request(
+                url=detail_url,
+                headers=headers,
+                callback=self._parse_detail_api,
+                meta={
+                    'original_item': item,
+                    'category': category,
+                    'source_id': source_id
+                },
+                errback=self._handle_detail_error,
+                dont_filter=True
+            )
+            
+        except Exception as e:
+            self.logger.error(f"Error requesting detail API: {e}")
+            return item
+
+    def _parse_detail_api(self, response):
+        """Парсит ответ детального API"""
+        try:
+            original_item = response.meta.get('original_item', {})
+            category = response.meta.get('category', {})
+            source_id = response.meta.get('source_id')
+            
+            self.logger.info(f"📡 Detail API Response: {response.status} for {response.url}")
+            
+            if response.status != 200:
+                self.logger.error(f"🚫 Detail API вернул статус {response.status} для {response.url}")
+                return original_item
+            
+            try:
+                data = response.json()
+                self.logger.info(f"✅ Успешно получены детальные JSON данные")
+            except ValueError as e:
+                self.logger.error(f"Invalid JSON in detail response: {e}")
+                return original_item
+            
+            # Обрабатываем params из детального API
+            params = data.get('params', [])
+            if not isinstance(params, list):
+                self.logger.warning(f"Expected params to be a list, got: {type(params)}")
+                return original_item
+            
+            # Объединяем данные из списка и детального API
+            enriched_item = original_item.copy()
+            
+            # Обрабатываем каждый параметр
+            for param in params:
+                param_id = param.get('id')
+                param_name = param.get('name', '')
+                param_value = param.get('value', '')
+                
+                # Определяем тип недвижимости для специфичных маппингов
+                property_type = enriched_item.get('property_type', '')
+                
+                # Проверяем общие маппинги
+                if param_id and param_id in self.common_params_mapping:
+                    field_name = self.common_params_mapping[param_id]
+                    
+                    # Обрабатываем специальные поля
+                    if field_name == 'district':
+                        # Район будет обработан при сохранении в БД
+                        enriched_item['district'] = param_value
+                        self.logger.debug(f"📝 Сохранен район: {param_value}")
+                    
+                    else:
+                        # Обычные поля БД (включая condition и building_type)
+                        enriched_item[field_name] = param_value
+                        self.logger.debug(f"📝 Сохранено поле БД {field_name}: {param_value}")
+                
+                # Проверяем специфичные маппинги для типа недвижимости
+                elif property_type and property_type in self.property_type_params_mapping:
+                    type_mapping = self.property_type_params_mapping[property_type]
+                    if param_id and param_id in type_mapping:
+                        field_name = type_mapping[param_id]
+                        
+                        # Все специфичные поля сохраняем в attributes
+                        if 'attributes' not in enriched_item:
+                            enriched_item['attributes'] = {}
+                        enriched_item['attributes'][field_name] = param_value
+                        self.logger.debug(f"📝 Сохранен специфичный атрибут {field_name}: {param_value}")
+                
+                else:
+                    # Сохраняем неизвестные параметры в attributes
+                    if 'attributes' not in enriched_item:
+                        enriched_item['attributes'] = {}
+                    enriched_item['attributes'][f"param_{param_id}"] = {
+                        'name': param_name,
+                        'value': param_value
+                    }
+                    self.logger.debug(f"📝 Сохранен неизвестный параметр {param_id}: {param_name} = {param_value}")
+            
+            # Валидация и очистка обогащенного элемента
+            validated_result = self._validate_and_clean_item(enriched_item)
+            
+            if validated_result:
+                self.scraped_items_count += 1
+                self.category_items_count[category['name']] = self.category_items_count.get(category['name'], 0) + 1
+                
+                # Обновляем прогресс
+                if self.scraped_items_count % self.progress_update_interval == 0:
+                    self._update_progress()
+                
+                self.logger.info(f"✅ Обработано детальное объявление {source_id}: {validated_result.get('title', 'Unknown')}")
+                yield validated_result
+            else:
+                self.logger.warning(f"❌ Не удалось валидировать детальное объявление {source_id}")
+            
+        except Exception as e:
+            self.logger.error(f"Error parsing detail API: {e}")
+            # Возвращаем оригинальный элемент без детальной информации
+            if response.meta.get('original_item'):
+                self.scraped_items_count += 1
+                yield response.meta.get('original_item', {})
+
+    def _handle_detail_error(self, failure):
+        """Обработка ошибок детального API"""
+        try:
+            original_item = failure.request.meta.get('original_item', {})
+            source_id = failure.request.meta.get('source_id', 'unknown')
+            
+            self.logger.error(f"Detail API request failed for {source_id}: {failure.request.url}")
+            self.logger.error(f"Error: {failure.value}")
+            
+            # Устанавливаем флаг ошибок парсинга при сетевых ошибках
+            error_str = str(failure.value).lower()
+            if any(network_error in error_str for network_error in [
+                'dns lookup failed', 'connection refused', 'connection timeout',
+                'network unreachable', 'host unreachable', 'request failed'
+            ]):
+                self.has_parsing_errors = True
+                self.logger.error("Detail API network error detected, setting parsing errors flag")
+            
+            # Возвращаем оригинальный элемент без детальной информации
+            if original_item:
+                self.scraped_items_count += 1
+                yield original_item
+            
+        except Exception as e:
+            self.logger.error(f"Error in detail error handler: {e}")
 
     def _get_nested_value(self, data, path):
         """Получает значение по вложенному пути (например, 'data.items.0.title')"""
@@ -393,7 +594,8 @@ class UniversalSpider(scrapy.Spider):
                     return None
             
             # Очистка строковых полей
-            string_fields = ['title', 'description', 'city', 'district', 'address']
+            string_fields = ['title', 'description', 'city', 'district', 'address', 
+                           'furniture', 'heating', 'condition', 'building_type', 'utilities']
             for field in string_fields:
                 if field in item and item[field]:
                     if isinstance(item[field], str):
@@ -401,7 +603,25 @@ class UniversalSpider(scrapy.Spider):
                         if not item[field]:  # Если после очистки пустая строка
                             item[field] = None
             
-            # Обработка булевых полей (убрали is_realtor, так как это поле больше не используется)
+            # Обработка числовых полей
+            numeric_fields = ['rooms', 'area_sqm', 'land_area_sotka', 'floor', 'total_floors', 'ceiling_height']
+            for field in numeric_fields:
+                if field in item and item[field] is not None:
+                    try:
+                        if isinstance(item[field], str):
+                            # Убираем текст из числовых значений (например, "5 комнат" -> 5)
+                            import re
+                            number_match = re.search(r'(\d+(?:\.\d+)?)', str(item[field]))
+                            if number_match:
+                                item[field] = float(number_match.group(1))
+                            else:
+                                item[field] = None
+                        else:
+                            item[field] = float(item[field])
+                    except (ValueError, TypeError):
+                        item[field] = None
+            
+            # Обработка булевых полей
             bool_fields = []
             for field in bool_fields:
                 if field in item and item[field] is not None:
@@ -462,6 +682,16 @@ class UniversalSpider(scrapy.Spider):
             self.logger.error(f"Request failed: {failure.request.url}")
             self.logger.error(f"Error: {failure.value}")
             self.scraping_logger.log_request_failure(failure.request.url, str(failure.value))
+            
+            # Устанавливаем флаг ошибок парсинга при сетевых ошибках
+            error_str = str(failure.value).lower()
+            if any(network_error in error_str for network_error in [
+                'dns lookup failed', 'connection refused', 'connection timeout',
+                'network unreachable', 'host unreachable', 'request failed'
+            ]):
+                self.has_parsing_errors = True
+                self.logger.error("Network error detected, setting parsing errors flag")
+                
         except Exception as e:
             self.logger.error(f"Error in error handler: {e}")
 
@@ -488,3 +718,11 @@ class UniversalSpider(scrapy.Spider):
             
         except Exception as e:
             self.logger.error(f"Error in spider close: {e}")
+
+
+    def closed(self, reason):
+        if self.has_parsing_errors:
+            self.logger.error("Spider finished with parsing errors. Signalling failure.")
+            pass
+
+

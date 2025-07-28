@@ -7,6 +7,15 @@ import sys
 import os
 from .logger import get_scraping_logger
 
+# Импорт валидатора фотографий
+try:
+    from .services.photo_validator_service import PhotoValidatorService
+    PHOTO_VALIDATION_ENABLED = True
+    print("✅ Photo validator service loaded successfully!")
+except ImportError as e:
+    print(f"⚠️ Photo validator service not available: {e}")
+    PHOTO_VALIDATION_ENABLED = False
+
 # Добавляем корневую папку проекта в путь
 # Определяем корневую папку в зависимости от среды
 if '/app/' in __file__:
@@ -30,12 +39,6 @@ if os.path.exists(backend_path):
     sys.path.insert(0, backend_path)
 
 sys.path.append(project_root)
-
-# 🔍 Отладочная информация о путях
-print(f"🔍 Pipeline __file__: {__file__}")
-print(f"🔍 Project root: {project_root}")
-print(f"🔍 Current working directory: {os.getcwd()}")
-print(f"🔍 Python path: {sys.path[:3]}...")
 
 # Импортируем AI сервис с обработкой ошибок
 try:
@@ -318,6 +321,124 @@ class DatabasePipeline:
             self.API_URL = SCRAPY_API_URL
         except ImportError:
             self.API_URL = os.getenv("SCRAPY_API_URL", "http://api:8000/api/ads")
+        
+        # Убираем инициализацию валидатора фото
+        self.photo_validator = None
+        # Универсальный список паттернов для фильтрации рекламных фото
+        self.photo_filter_patterns = [
+            '/banners/',
+            # В будущем можно добавить другие паттерны, например:
+            # '/ads/', '/promo/', '/watermark/'
+        ]
+
+    def filter_photos(self, images):
+        """
+        Фильтрует список ссылок на фото по паттернам из self.photo_filter_patterns
+        Оставляет только валидные фото
+        """
+        if not images:
+            return []
+        filtered = []
+        for url in images:
+            if not any(pattern in url for pattern in self.photo_filter_patterns):
+                filtered.append(url)
+        return filtered
+
+    def process_phone_numbers(self, phone_data):
+        """
+        Обрабатывает номера телефонов: разделяет сгруппированные номера и нормализует их в нужные форматы
+        Поддерживает форматы: +996700121212, 996700121212, 0700121212, 700121212
+        """
+        if not phone_data:
+            return []
+        
+        processed_phones = []
+        
+        # Если это список, обрабатываем каждый элемент
+        if isinstance(phone_data, list):
+            for phone_item in phone_data:
+                processed_phones.extend(self._split_and_normalize_phone(phone_item))
+        else:
+            # Если это строка, обрабатываем её
+            processed_phones.extend(self._split_and_normalize_phone(phone_data))
+        
+        # Убираем дубликаты и пустые значения
+        unique_phones = list(set(filter(None, processed_phones)))
+        
+        return unique_phones
+
+    def _split_and_normalize_phone(self, phone_str):
+        """
+        Разделяет сгруппированные номера и нормализует их
+        """
+        if not phone_str:
+            return []
+        
+        phone_str = str(phone_str).strip()
+        normalized_phones = []
+        
+        # Разделяем по различным разделителям
+        # Поддерживаем разделители: пробел, запятая, точка с запятой, дефис
+        phone_parts = re.split(r'[\s,;\-]+', phone_str)
+        
+        for part in phone_parts:
+            part = part.strip()
+            if not part:
+                continue
+            
+            # Убираем лишние символы (скобки, кавычки и т.д.)
+            part = re.sub(r'[()"\']', '', part)
+            
+            # Нормализуем номер
+            normalized = self._normalize_phone_number(part)
+            if normalized:
+                normalized_phones.append(normalized)
+        
+        return normalized_phones
+
+    def _normalize_phone_number(self, phone):
+        """
+        Нормализует номер телефона в один из поддерживаемых форматов
+        Поддерживаемые форматы: +996700121212, 996700121212, 0700121212, 700121212
+        """
+        if not phone:
+            return None
+        
+        # Убираем все нецифровые символы кроме +
+        clean_phone = re.sub(r'[^\d+]', '', phone)
+        
+        # Если номер начинается с +996
+        if clean_phone.startswith('+996'):
+            if len(clean_phone) == 13:  # +996700121212
+                return clean_phone
+            elif len(clean_phone) == 12:  # +99670121212 (без 0 после +996)
+                return clean_phone
+        
+        # Если номер начинается с 996 (без +)
+        elif clean_phone.startswith('996'):
+            if len(clean_phone) == 12:  # 996700121212
+                return f"+{clean_phone}"
+            elif len(clean_phone) == 11:  # 99670121212 (без 0 после 996)
+                return f"+{clean_phone}"
+        
+        # Если номер начинается с 0 (кыргызский формат)
+        elif clean_phone.startswith('0'):
+            if len(clean_phone) == 10:  # 0700121212
+                return f"+996{clean_phone[1:]}"
+            elif len(clean_phone) == 9:  # 070757554 (9 цифр с 0)
+                return f"+996{clean_phone[1:]}"
+        
+        # Если номер начинается с 7 (без 0)
+        elif clean_phone.startswith('7'):
+            if len(clean_phone) == 9:  # 700121212
+                return f"+996{clean_phone}"
+        
+        # Если номер начинается с 5, 6, 7 (мобильные коды)
+        elif clean_phone.startswith(('5', '6', '7')):
+            if len(clean_phone) == 9:  # 700121212
+                return f"+996{clean_phone}"
+        
+        return None
 
     def process_item(self, item, spider):
         adapter = ItemAdapter(item)
@@ -343,6 +464,10 @@ class DatabasePipeline:
                 source_name = "lalafo.kg"
             elif 'stroka.kg' in url:
                 source_name = "stroka.kg"
+            elif 'an.kg' in url:
+                source_name = "an.kg"
+            elif 'agency.kg' in url:
+                source_name = "agency.kg"
             else:
                 source_name = "unknown"
 
@@ -380,25 +505,37 @@ class DatabasePipeline:
             spider.logger.warning("🔍 Pipeline location: no location data found")
 
         images = adapter.get('images') or ([adapter.get('main_image_url')] if adapter.get('main_image_url') else [])
-        photos = [{"url": url} for url in images if url]
+        
+        # Фильтрация рекламных фото по паттернам
+        filtered_images = self.filter_photos(images)
+        photos = [{"url": url} for url in filtered_images if url]
 
+        # 🔧 УЛУЧШЕННАЯ ОБРАБОТКА НОМЕРОВ ТЕЛЕФОНОВ
         phone_numbers = []
-        # Проверяем поле phone_numbers (из спайдера)
+        
+        # Обрабатываем поле phone_numbers (из спайдера)
         phones_from_spider = adapter.get('phone_numbers')
         if phones_from_spider:
-            if isinstance(phones_from_spider, list):
-                phone_numbers.extend(phones_from_spider)
-            else:
-                phone_numbers.append(str(phones_from_spider))
-            spider.logger.info(f"🔍 Pipeline phone processing: got {len(phone_numbers)} phones from spider: {phone_numbers}")
+            processed_phones = self.process_phone_numbers(phones_from_spider)
+            phone_numbers.extend(processed_phones)
+            spider.logger.info(f"🔧 Phone processing: processed {len(processed_phones)} phones from spider: {processed_phones}")
         
         # Также проверяем старые поля для совместимости
         phone = adapter.get('phone')
+        if phone:
+            processed_phone = self.process_phone_numbers(phone)
+            for p in processed_phone:
+                if p not in phone_numbers:
+                    phone_numbers.append(p)
+        
         mobile = adapter.get('mobile')
-        if phone and phone not in phone_numbers:
-            phone_numbers.append(phone)
-        if mobile and mobile not in phone_numbers:
-            phone_numbers.append(mobile)
+        if mobile:
+            processed_mobile = self.process_phone_numbers(mobile)
+            for p in processed_mobile:
+                if p not in phone_numbers:
+                    phone_numbers.append(p)
+        
+        spider.logger.info(f"🔧 Final phone processing: {len(phone_numbers)} unique phones: {phone_numbers}")
 
         published_at = None
         created_time = adapter.get('created_at')

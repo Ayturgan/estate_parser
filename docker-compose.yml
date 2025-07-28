@@ -13,12 +13,12 @@ services:
       - "${DB_PORT}:5432"
     networks:
       - estate_network
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
+    # healthcheck:
+    #   test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+    #   interval: 10s
+    #   timeout: 5s
+    #   retries: 5
+    #   start_period: 30s
 
   # Redis для кэширования и очередей
   redis:
@@ -28,11 +28,11 @@ services:
       - "${REDIS_EXTERNAL_PORT}:6379"
     networks:
       - estate_network
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+    # healthcheck:
+    #   test: ["CMD", "redis-cli", "ping"]
+    #   interval: 10s
+    #   timeout: 5s
+    #   retries: 5
 
   # Elasticsearch для поиска
   elasticsearch:
@@ -49,12 +49,12 @@ services:
       - "${ELASTICSEARCH_TRANSPORT_PORT}:9300"
     networks:
       - estate_network
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 60s
+    # healthcheck:
+    #   test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+    #   interval: 30s
+    #   timeout: 10s
+    #   retries: 5
+    #   start_period: 60s
 
   # PgAdmin для управления БД
   pgadmin:
@@ -66,8 +66,7 @@ services:
     ports:
       - "${PGADMIN_PORT}:80"
     depends_on:
-      db:
-        condition: service_healthy
+      - db
     networks:
       - estate_network
 
@@ -89,25 +88,26 @@ services:
       - SCRAPY_API_URL=${SCRAPY_API_URL}
       - API_HOST=${API_HOST}
       - API_PORT=${API_PORT}
+      - DEFAULT_ADMIN_USERNAME=${DEFAULT_ADMIN_USERNAME}
+      - DEFAULT_ADMIN_PASSWORD=${DEFAULT_ADMIN_PASSWORD}
+      - DEFAULT_ADMIN_FULL_NAME=${DEFAULT_ADMIN_FULL_NAME}
+      - CREATE_DEFAULT_ADMIN=${CREATE_DEFAULT_ADMIN}
     ports:
       - "${API_PORT}:8000"
     depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      elasticsearch:
-        condition: service_healthy
+      - db
+      - redis
+      - elasticsearch
     volumes:
       - ./logs:/app/logs
     networks:
       - estate_network
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8000/api/status || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
+    # healthcheck:
+    #   test: ["CMD-SHELL", "curl -f http://localhost:8000/api/status || exit 1"]
+    #   interval: 30s
+    #   timeout: 10s
+    #   retries: 3
+    #   start_period: 180s
 
   # Scraper сервис
   scraper:
@@ -120,19 +120,18 @@ services:
       - REDIS_HOST=${REDIS_HOST}
       - REDIS_PORT=${REDIS_PORT}
     depends_on:
-      api:
-        condition: service_healthy
+      - api
     volumes:
       - ./logs:/app/logs
       - ./backend:/app/backend
     networks:
       - estate_network
-    healthcheck:
-      test: ["CMD-SHELL", "pgrep -f 'python.*worker.py' || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
+    # healthcheck:
+    #   test: ["CMD-SHELL", "pgrep -f 'python.*worker.py' || exit 1"]
+    #   interval: 30s
+    #   timeout: 10s
+    #   retries: 3
+    #   start_period: 30s
 
 
 volumes:

@@ -1,5 +1,5 @@
 # Конфигурация для Lalafo (мультикатегорийная)
-base_url: "https://lalafo.kg/api/search/v3/feed/search"
+base_url: "https://llalafo.kg/api/search/v3/feed/search"
 source_name: "lalafo.kg"
 use_playwright: true
 
@@ -15,37 +15,37 @@ categories:
     category_id: 2046
     property_type: "Квартира"
     listing_type: "Продажа"
-    referer: "https://lalafo.kg/kyrgyzstan/kvartiry/prodazha-kvartir"
+    referer: "https://llalafo.kg/kyrgyzstan/kvartiry/prodazha-kvartir"
     
   - name: "Аренда квартир"
     category_id: 2043
     property_type: "Квартира"
     listing_type: "Аренда"
-    referer: "https://lalafo.kg/kyrgyzstan/kvartiry/arenda-kvartir"
+    referer: "https://llalafo.kg/kyrgyzstan/kvartiry/arenda-kvartir"
     
   - name: "Продажа домов"
     category_id: 2031
     property_type: "Дом"
     listing_type: "Продажа"
-    referer: "https://lalafo.kg/kyrgyzstan/doma-i-dachi/prodazha-domov"
+    referer: "https://llalafo.kg/kyrgyzstan/doma-i-dachi/prodazha-domov"
     
   - name: "Аренда домов"
     category_id: 2032
     property_type: "Дом"
     listing_type: "Аренда"
-    referer: "https://lalafo.kg/kyrgyzstan/doma-i-dachi/arenda-domov"
+    referer: "https://llalafo.kg/kyrgyzstan/doma-i-dachi/arenda-domov"
     
   - name: "Продажа коммерческой недвижимости"
     category_id: 2055
     property_type: "Коммерческая недвижимость"
     listing_type: "Продажа"
-    referer: "https://lalafo.kg/kyrgyzstan/kommercheskaya-nedvizhimost/prodazha"
+    referer: "https://llalafo.kg/kyrgyzstan/kommercheskaya-nedvizhimost/prodazha"
     
   - name: "Аренда коммерческой недвижимости"
     category_id: 2064
     property_type: "Коммерческая недвижимость"
     listing_type: "Аренда"
-    referer: "https://lalafo.kg/kyrgyzstan/kommercheskaya-nedvizhimost/arenda"
+    referer: "https://llalafo.kg/kyrgyzstan/kommercheskaya-nedvizhimost/arenda"
     
   - name: "Продажа земельных участков"
     category_id: 2038
@@ -92,14 +92,14 @@ playwright:
   headless: true
   sleep_time: 3
 
-# Поля API ответа
+# Поля API ответа (список объявлений)
 api_fields:
   items_key: "items"  # Ключ массива объявлений в ответе
   item_fields:
     title: "title"
     description: "description" 
     city: "city"
-
+    source_id: "id"  # ID объявления для детального API
     price: "price"
     currency: "currency"
     mobile: "mobile"
@@ -108,6 +108,62 @@ api_fields:
     main_image_url: "images.0.original_url"  # Первое изображение
     images: "images"  # Массив всех изображений
     district: "district"
+
+# Настройки детального API
+detail_api:
+  enabled: true
+  url_format: "https://lalafo.kg/api/search/v3/feed/details/{source_id}?expand=url"
+  
+  # Общие маппинги полей из params по id (для всех типов недвижимости)
+  common_params_mapping:
+    68: "furniture"      # Мебель
+    69: "rooms"          # Количество комнат
+    70: "area_sqm"       # Площадь (м2)
+    71: "land_area_sotka" # Площадь участка (соток)
+    229: "total_floors"  # Количество этажей
+    357: "district"      # Район (записывается в locations)
+    870: "condition"     # Коммуникации (сохраняем в condition)
+    871: "heating"       # Отопление
+    872: "condition"     # Ремонт
+    879: "building_type" # Тип дома
+    907: "building_type" # Материал (сохраняем в building_type)
+  
+  # Специфичные маппинги по типам недвижимости
+  property_type_params_mapping:
+    "Дом":
+      881: "additional_features"  # Дополнительно
+      945: "subletting"          # Подселение
+      2149: "offer_type"         # Тип предложения
+    
+    "Квартира":
+      920: "capacity"            # Количество мест
+      927: "amenities"           # Удобства
+      928: "housing_class"       # Класс жилья
+      929: "accommodation_options" # Варианты размещения
+      227: "pets"               # Животные
+      947: "deposit"            # Депозит, сом
+      948: "appliances"         # Бытовая техника
+      2149: "offer_type"        # Тип предложения
+    
+    "Коммерческая недвижимость":
+      354: "parking"            # Паркинг
+      1250: "purpose"           # Назначение
+      2149: "offer_type"        # Тип предложения
+    
+    "Комната":
+      945: "subletting"         # Подселение
+      946: "for_whom"           # Для кого
+      2149: "offer_type"        # Тип предложения
+    
+    "Гараж":
+      903: "height"             # Высота (м.)
+      908: "additional_features" # Дополнительно
+      2149: "offer_type"        # Тип предложения
+    
+    "Земельный участок":
+      228: "purpose"            # Назначение
+      868: "documents"          # Правоустанавливающие документы
+      2149: "offer_type"        # Тип предложения
 
 # Построение полного URL объявления
 url_building:

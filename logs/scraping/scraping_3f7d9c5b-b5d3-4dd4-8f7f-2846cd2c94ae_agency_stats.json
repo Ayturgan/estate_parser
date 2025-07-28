@@ -1,0 +1,15 @@
+{
+  "job_id": "3f7d9c5b-b5d3-4dd4-8f7f-2846cd2c94ae",
+  "config_name": "agency",
+  "started_at": "2025-07-16T11:00:18.235915",
+  "items_total": 0,
+  "items_processed": 0,
+  "items_failed": 0,
+  "pages_processed": 0,
+  "api_calls_success": 0,
+  "api_calls_failed": 0,
+  "errors": [],
+  "warnings": [],
+  "finished_at": "2025-07-16T11:01:16.768591",
+  "status": "completed"
+}

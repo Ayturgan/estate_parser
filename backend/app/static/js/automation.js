@@ -540,6 +540,16 @@ class AutomationManager {
                         statusIcon = 'bi-exclamation-triangle-fill';
                         statusText = 'Ошибка';
                         break;
+                    case 'завершено с ошибками парсинга':
+                        statusClass = 'bg-danger';
+                        statusIcon = 'bi-exclamation-triangle-fill';
+                        statusText = 'Завершено с ошибками';
+                        break;
+                    case 'ошибка парсинга':
+                        statusClass = 'bg-danger';
+                        statusIcon = 'bi-exclamation-triangle-fill';
+                        statusText = 'Ошибка парсинга';
+                        break;
                     case 'остановлено':
                         statusClass = 'bg-info';
                         statusIcon = 'bi-stop-circle-fill';

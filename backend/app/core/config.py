@@ -99,4 +99,10 @@ ELASTICSEARCH_TRANSPORT_PORT = int(os.getenv("ELASTICSEARCH_TRANSPORT_PORT", "93
 
 # Proxy Configuration (optional)
 USE_PROXY = os.getenv("USE_PROXY", "false").lower() == "true"
-PROXY_URL = os.getenv("PROXY_URL", "") 
+PROXY_URL = os.getenv("PROXY_URL", "")
+
+# Default Admin Configuration
+DEFAULT_ADMIN_USERNAME = os.getenv("DEFAULT_ADMIN_USERNAME", "Adminn")
+DEFAULT_ADMIN_PASSWORD = os.getenv("DEFAULT_ADMIN_PASSWORD", "admin2025")
+DEFAULT_ADMIN_FULL_NAME = os.getenv("DEFAULT_ADMIN_FULL_NAME", "Administrator")
+CREATE_DEFAULT_ADMIN = os.getenv("CREATE_DEFAULT_ADMIN", "true").lower() == "true" 

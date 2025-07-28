@@ -409,6 +409,7 @@ class ElasticsearchService:
                     fuzziness='AUTO'
                 )
             )
+        
         price_range = {}
         if filters:
             if 'min_price' in filters:
@@ -416,14 +417,22 @@ class ElasticsearchService:
             if 'max_price' in filters:
                 price_range['lte'] = filters['max_price']
             filters = {k: v for k, v in filters.items() if k not in ['min_price', 'max_price']}
+        
         if price_range:
             s = s.filter('range', price=price_range)
+        
         if filters:
             for key, value in filters.items():
-                s = s.filter('term', **{key: value})
+                if key == 'phone_number' and value:
+                    # Специальная обработка для поиска по номеру телефона
+                    s = s.query('match', phone_numbers=value)
+                else:
+                    s = s.filter('term', **{key: value})
+        
         if sort_by != "relevance":
             order = '-' if sort_order == 'desc' else ''
             s = s.sort(f"{order}{sort_by}")
+        
         from_ = (page - 1) * size
         s = s.extra(from_=from_, size=size)
         

@@ -11,6 +11,8 @@ import redis
 import json
 from cachetools import TTLCache
 import asyncio
+import os
+
 
 from app.database.models import Ad, AdCreateRequest, PaginatedUniqueAdsResponse, AdSource, DuplicateInfo, StatsResponse
 from app.database import get_db, SessionLocal
@@ -48,29 +50,35 @@ def create_default_admin():
     try:
         from app.services.auth_service import AuthService
         from app.database.models import AdminCreate
+        from app.core.config import DEFAULT_ADMIN_USERNAME, DEFAULT_ADMIN_PASSWORD, DEFAULT_ADMIN_FULL_NAME, CREATE_DEFAULT_ADMIN
+        
+        # Проверяем, нужно ли создавать админа по умолчанию
+        if not CREATE_DEFAULT_ADMIN:
+            logger.info("Default admin creation disabled via environment variable")
+            return
         
         # Создаем сессию БД
         db = SessionLocal()
         auth_service = AuthService()
         
-        # Проверяем, существует ли админ с username "Admin"
+        # Проверяем, существует ли админ с указанным username
         existing_admin = db.query(db_models.DBAdmin).filter(
-            db_models.DBAdmin.username == "Adminn"
+            db_models.DBAdmin.username == DEFAULT_ADMIN_USERNAME
         ).first()
         
         if existing_admin:
-            logger.info("Default admin already exists, skipping creation")
+            logger.info(f"Default admin '{DEFAULT_ADMIN_USERNAME}' already exists, skipping creation")
             return
         
         # Создаем админа по умолчанию
         admin_data = AdminCreate(
-            username="Adminn",
-            password="admin2025",
-            full_name="Administrator"
+            username=DEFAULT_ADMIN_USERNAME,
+            password=DEFAULT_ADMIN_PASSWORD,
+            full_name=DEFAULT_ADMIN_FULL_NAME
         )
         
         auth_service.create_admin(db, admin_data)
-        logger.info("✅ Default admin created: username=Admin, password=admin2025")
+        logger.info(f"✅ Default admin created: username={DEFAULT_ADMIN_USERNAME}, password={DEFAULT_ADMIN_PASSWORD}")
         
     except Exception as e:
         logger.error(f"❌ Error creating default admin: {e}")
@@ -96,6 +104,7 @@ async def lifespan(app: FastAPI):
         from app.services.settings_service import settings_service
         settings_service.initialize_default_settings()
         logger.info("✅ Default settings initialized successfully!")
+        
         
         # Создание админа по умолчанию
         logger.info("Creating default admin...")
@@ -132,9 +141,18 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# Настройки CORS для продакшена
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
+if ALLOWED_ORIGINS == ["*"]:
+    # Для разработки - разрешаем все
+    origins = ["*"]
+else:
+    # Для продакшена - только указанные домены
+    origins = [origin.strip() for origin in ALLOWED_ORIGINS if origin.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], 
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -241,6 +259,10 @@ def build_unique_ads_query(
         else:
             query = query.filter(db_models.DBUniqueAd.realtor_id.is_(None))
     
+    # Поиск по номеру телефона
+    if filters.get('phone_number'):
+        query = query.filter(db_models.DBUniqueAd.phone_numbers.contains([filters['phone_number'].strip()]))
+    
     return query
 
 # === ОСНОВНЫЕ ЭНДПОИНТЫ ===
@@ -249,7 +271,7 @@ async def read_root():
     """Корневой эндпоинт API"""
     return {
         "message": "Real Estate Aggregator API",
-        "version": "1.0.0",
+        "version": "2.0.0",
         "docs": "/docs"
     }
 
@@ -316,9 +338,12 @@ async def get_unique_ads(
     max_price: Optional[float] = Query(None, ge=0, description="Максимальная цена"),
     min_area: Optional[float] = Query(None, ge=0, description="Минимальная площадь"),
     max_area: Optional[float] = Query(None, ge=0, description="Максимальная площадь"),
+    min_land_area: Optional[float] = Query(None, ge=0, description="Минимальная площадь участка"),
+    max_land_area: Optional[float] = Query(None, ge=0, description="Максимальная площадь участка"),
     rooms: Optional[int] = Query(None, ge=0, le=10, description="Количество комнат"),
     has_duplicates: Optional[bool] = Query(None, description="Есть ли дубликаты"),
     is_realtor: Optional[bool] = Query(None, description="Фильтр по риэлторам"),
+    phone_number: Optional[str] = Query(None, description="Номер телефона"),
     sort_by: Optional[str] = Query("created_at", description="Сортировка: price, area_sqm, created_at, duplicates_count"),
     sort_order: Optional[str] = Query("desc", description="Порядок: asc, desc"),
     limit: int = Query(50, ge=1, le=500, description="Количество записей"),
@@ -337,9 +362,12 @@ async def get_unique_ads(
         'max_price': max_price,
         'min_area': min_area,
         'max_area': max_area,
+        'min_land_area': min_land_area,
+        'max_land_area': max_land_area,
         'rooms': rooms,
         'has_duplicates': has_duplicates,
-        'is_realtor': is_realtor
+        'is_realtor': is_realtor,
+        'phone_number': phone_number
     }
     
     query = build_unique_ads_query(db, filters)
@@ -619,6 +647,7 @@ async def create_ad(
             currency=ad_data.currency,
             rooms=ad_data.rooms,
             area_sqm=ad_data.area_sqm,
+            land_area_sotka=ad_data.land_area_sotka,  # Добавляем поле площади участка
             floor=ad_data.floor,
             total_floors=ad_data.total_floors,
             series=ad_data.series,
@@ -660,7 +689,7 @@ async def create_ad(
         # 🔍 Логирование сохраненных данных
         logger.info(f"✅ Ad created successfully: ID={db_ad.id}")
         logger.info(f"✅ Saved AI fields: property_type='{db_ad.property_type}', property_origin='{db_ad.property_origin}', listing_type='{db_ad.listing_type}'")
-        logger.info(f"✅ Saved extracted data: rooms={db_ad.rooms}, area_sqm={db_ad.area_sqm}, floor={db_ad.floor}, total_floors={db_ad.total_floors}")
+        logger.info(f"✅ Saved extracted data: rooms={db_ad.rooms}, area_sqm={db_ad.area_sqm}, land_area_sotka={db_ad.land_area_sotka}, floor={db_ad.floor}, total_floors={db_ad.total_floors}")
         logger.info(f"✅ Saved realtor_id: {db_ad.realtor_id}")
         
         # Отправляем событие о новом объявлении
@@ -683,9 +712,7 @@ async def create_ad(
         except Exception as e:
             logger.warning(f"Failed to emit events for new ad: {e}")
         
-        background_tasks.add_task(index_ad_in_elasticsearch, db_ad.id)
         return transform_ad(db_ad)
-        
     except Exception as e:
         db.rollback()
         logger.error(f"Error creating ad: {str(e)}")
@@ -745,7 +772,7 @@ async def search_ads(
     min_area: Optional[float] = Query(None, ge=0, description="Минимальная площадь"),
     max_area: Optional[float] = Query(None, ge=0, description="Максимальная площадь"),
     rooms: Optional[int] = Query(None, ge=0, description="Количество комнат"),
-
+    phone_number: Optional[str] = Query(None, description="Номер телефона"),
     source_name: Optional[str] = Query(None, description="Источник объявления"),
     sort_by: Optional[str] = Query("relevance", description="Сортировка: relevance, price, area_sqm, created_at, published_at, duplicates_count"),
     sort_order: Optional[str] = Query("desc", description="Порядок сортировки: asc, desc"),
@@ -762,7 +789,7 @@ async def search_ads(
         'min_area': min_area,
         'max_area': max_area,
         'rooms': rooms,
-
+        'phone_number': phone_number,
         'source_name': source_name
     }
     filters = {k: v for k, v in filters.items() if v is not None}
@@ -782,6 +809,7 @@ async def elasticsearch_health():
     except Exception as e:
         logger.error(f"Error checking Elasticsearch health: {e}")
         raise HTTPException(status_code=500, detail=f"Health check error: {str(e)}")
+
 
 @api_router.get("/elasticsearch/stats")
 async def elasticsearch_stats():
@@ -1083,6 +1111,7 @@ async def get_log(job_id: str, limit: int = 100):
     log = await scrapy_manager.get_log(job_id, limit=limit)
     return {"log": log}
 
+
 @api_router.get("/scraping/sources")
 async def get_scraping_sources():
     """Получить список источников парсинга и их статус"""
@@ -1110,27 +1139,18 @@ async def get_scraping_sources():
 @api_router.get("/automation/status")
 async def get_automation_status():
     """Получение статуса автоматизации"""
-    # Обновляем статус всех этапов в реальном времени
     await automation_service.update_stage_status()
-    
-    # Получаем статус из automation_service
     status = automation_service.get_status()
-    
-    # Заменяем данные настройками из БД
     from app.services.settings_service import settings_service
     
-    # Автоматический режим
     status['is_auto_mode'] = settings_service.get_setting('auto_mode', True)
     
-    # Интервал
     interval_minutes = settings_service.get_setting('pipeline_interval_minutes', 180)
     status['interval_minutes'] = interval_minutes
     status['interval_hours'] = interval_minutes / 60.0
     
-    # Источники парсинга
     status['scraping_sources'] = settings_service.get_setting('scraping_sources', ['lalafo', 'stroka'])
     
-    # Включенные этапы
     status['enabled_stages'] = {
         'scraping': settings_service.get_setting('enable_scraping', True),
         'photo_processing': settings_service.get_setting('enable_photo_processing', True),
@@ -1210,7 +1230,6 @@ async def update_setting(
     from app.services.settings_service import settings_service
     success = settings_service.set_setting(key, request.value, request.value_type, request.description, request.category)
     
-    # Синхронизация с automation_service для всех ключей автоматизации
     automation_keys = [
         'auto_mode', 'pipeline_interval_minutes', 'scraping_sources',
         'enable_scraping', 'enable_photo_processing', 'enable_duplicate_processing',
@@ -1251,12 +1270,11 @@ async def get_realtors(
         if min_ads_count is not None:
             query = query.filter(db_models.DBRealtor.total_ads_count >= min_ads_count)
         
-        # Сортировка
         if sort_by == "confidence_score":
             query = query.order_by(desc(db_models.DBRealtor.confidence_score))
         elif sort_by == "last_activity":
             query = query.order_by(desc(db_models.DBRealtor.last_activity))
-        else:  # total_ads_count
+        else: 
             query = query.order_by(desc(db_models.DBRealtor.total_ads_count))
         
         total = query.count()
@@ -1320,7 +1338,6 @@ async def get_realtor_details(
         }
         
         if include_ads:
-            # Получаем последние объявления риэлтора
             recent_ads = db.query(db_models.DBUniqueAd).options(
                 selectinload(db_models.DBUniqueAd.location),
                 selectinload(db_models.DBUniqueAd.photos),
@@ -1349,7 +1366,6 @@ async def get_realtors_stats(db: Session = Depends(get_db)):
         
         avg_ads = db.query(func.avg(db_models.DBRealtor.total_ads_count)).scalar() or 0
         
-        # Топ риэлторы по количеству объявлений
         top_realtors = db.query(db_models.DBRealtor).order_by(
             desc(db_models.DBRealtor.total_ads_count)
         ).limit(5).all()
@@ -1378,11 +1394,9 @@ async def get_realtors_stats(db: Session = Depends(get_db)):
 async def rebuild_realtors(background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     """Полностью пересчитывает всех риэлторов и их статистику"""
     try:
-        # Очищаем существующих риэлторов
         db.query(db_models.DBRealtor).delete()
         db.commit()
         
-        # Запускаем обнаружение риэлторов в фоне
         background_tasks.add_task(detect_realtors_async)
         
         return {"message": "Realtor rebuild started. All existing realtor profiles will be recreated."}
@@ -1399,7 +1413,7 @@ if __name__ == "__main__":
         app,
         host=API_HOST,
         port=API_PORT,
-        workers=2,
+        workers=6,
         log_level="info"
     )
 

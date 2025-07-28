@@ -663,8 +663,23 @@ class WebSocketClient {
         const { job_id, config, error } = data;
         console.log(`❌ Ошибка парсинга: ${config} (${job_id}) - ${error}`);
         
+        // Определяем тип ошибки и соответствующий статус
+        let status = 'ошибка';
+        let title = 'Ошибка парсинга';
+        let message = `Задача ${config} завершена с ошибкой: ${error}`;
+        
+        if (error && error.includes('ошибками парсинга')) {
+            status = 'завершено с ошибками парсинга';
+            title = 'Парсинг завершен с ошибками';
+            message = `Задача ${config} завершена, но обнаружены ошибки при извлечении данных`;
+        } else if (error && error.includes('ошибка парсинга')) {
+            status = 'ошибка парсинга';
+            title = 'Ошибка парсинга';
+            message = `Задача ${config} завершена с критической ошибкой парсинга`;
+        }
+        
         // Обновляем статус задачи
-        this.updateScrapingJobStatus(job_id, 'ошибка');
+        this.updateScrapingJobStatus(job_id, status);
         
         // Создаем уникальный ключ для предотвращения дублирования
         const notificationKey = `scraping_error:${job_id}`;
@@ -676,8 +691,8 @@ class WebSocketClient {
         }
         
         this.showNotification('error', {
-            title: 'Ошибка парсинга',
-            message: `Задача ${config} завершена с ошибкой: ${error}`
+            title: title,
+            message: message
         });
         
         // Добавляем в реестр активных уведомлений
@@ -931,7 +946,9 @@ class WebSocketClient {
             'ожидание': 'bg-secondary',
             'выполняется': 'bg-warning',
             'завершено': 'bg-success',
+            'завершено с ошибками парсинга': 'bg-danger',
             'ошибка': 'bg-danger',
+            'ошибка парсинга': 'bg-danger',
             'остановлено': 'bg-info'
         };
         return statusMap[status] || 'bg-secondary';

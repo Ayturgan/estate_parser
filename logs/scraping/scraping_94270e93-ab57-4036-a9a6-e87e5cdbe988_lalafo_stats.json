@@ -1,0 +1,15 @@
+{
+  "job_id": "94270e93-ab57-4036-a9a6-e87e5cdbe988",
+  "config_name": "lalafo",
+  "started_at": "2025-07-15T00:37:48.994211",
+  "items_total": 0,
+  "items_processed": 0,
+  "items_failed": 0,
+  "pages_processed": 0,
+  "api_calls_success": 0,
+  "api_calls_failed": 0,
+  "errors": [],
+  "warnings": [],
+  "finished_at": "2025-07-15T00:40:24.240136",
+  "status": "completed"
+}

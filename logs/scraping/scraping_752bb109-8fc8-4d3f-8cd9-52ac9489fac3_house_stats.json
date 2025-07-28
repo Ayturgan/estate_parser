@@ -1,0 +1,16 @@
+{
+  "job_id": "752bb109-8fc8-4d3f-8cd9-52ac9489fac3",
+  "config_name": "house",
+  "started_at": "2025-07-12T11:55:00.890037",
+  "items_total": 0,
+  "items_processed": 0,
+  "items_failed": 0,
+  "pages_processed": 0,
+  "api_calls_success": 0,
+  "api_calls_failed": 0,
+  "errors": [],
+  "warnings": [],
+  "finished_at": "2025-07-12T12:00:36.759641",
+  "status": "stopped",
+  "final_error": "Задача была остановлена пользователем"
+}

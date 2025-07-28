@@ -1,0 +1,15 @@
+{
+  "job_id": "4fa28974-9645-4c4e-951d-ec72b9245abe",
+  "config_name": "an",
+  "started_at": "2025-07-15T01:00:00.174268",
+  "items_total": 0,
+  "items_processed": 0,
+  "items_failed": 0,
+  "pages_processed": 0,
+  "api_calls_success": 0,
+  "api_calls_failed": 0,
+  "errors": [],
+  "warnings": [],
+  "finished_at": "2025-07-15T01:12:43.581066",
+  "status": "completed"
+}

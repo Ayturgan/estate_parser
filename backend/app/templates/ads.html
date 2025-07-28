@@ -21,9 +21,9 @@
     <!-- Фильтры -->
     <div class="row mb-4">
         <div class="col-12">
-            <div class="card">
-                <div class="card-header">
-                    <h5 class="mb-0"><i class="bi bi-funnel"></i> Фильтры</h5>
+            <div class="card filter-panel">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0"><i class="bi bi-funnel"></i> Фильтры поиска</h5>
                 </div>
                 <div class="card-body">
                     <form id="filters-form">
@@ -104,6 +104,16 @@
                                 <label class="form-label">Площадь до</label>
                                 <input type="number" class="form-control" name="max_area" placeholder="м²" value="{{ current_filters.max_area or '' }}">
                             </div>
+                            
+                            <div class="col-md-2 mb-3">
+                                <label class="form-label">Участок от</label>
+                                <input type="number" class="form-control" name="min_land_area" placeholder="соток" value="{{ current_filters.min_land_area or '' }}">
+                            </div>
+                            
+                            <div class="col-md-2 mb-3">
+                                <label class="form-label">Участок до</label>
+                                <input type="number" class="form-control" name="max_land_area" placeholder="соток" value="{{ current_filters.max_land_area or '' }}">
+                            </div>
                         </div>
                         
                         <div class="row">
@@ -143,6 +153,11 @@
                                     <option value="true" {% if current_filters.has_duplicates %}selected{% endif %}>Есть</option>
                                     <option value="false" {% if current_filters.has_duplicates == false %}selected{% endif %}>Нет</option>
                                 </select>
+                            </div>
+                            
+                            <div class="col-md-2 mb-3">
+                                <label class="form-label">Номер телефона</label>
+                                <input type="text" class="form-control" name="phone_number" placeholder="+996000000000" value="{{ current_filters.phone_number or '' }}">
                             </div>
                             
                         </div>
@@ -208,11 +223,50 @@
                         {% endif %}
                         
                         <div class="ad-meta mb-3">
-                            {% if ad.area_sqm %}{{ ad.area_sqm }} м² • {% endif %}
-                            {% if ad.rooms %}{{ ad.rooms }} комн. • {% endif %}
-                            {% if ad.floor %}{{ ad.floor }} этаж{% endif %}
+                            <div class="row g-2 mb-2">
+                                {% if ad.area_sqm %}
+                                    <div class="col-6">
+                                        <small class="text-muted"><i class="bi bi-arrows-angle-expand"></i> {{ ad.area_sqm }} м²</small>
+                                    </div>
+                                {% endif %}
+                                {% if ad.land_area_sotka %}
+                                    <div class="col-6">
+                                        <small class="text-muted"><i class="bi bi-tree"></i> {{ ad.land_area_sotka }} соток</small>
+                                    </div>
+                                {% endif %}
+                                {% if ad.rooms %}
+                                    <div class="col-6">
+                                        <small class="text-muted"><i class="bi bi-door-open"></i> {{ ad.rooms }} комн.</small>
+                                    </div>
+                                {% endif %}
+                                {% if ad.floor %}
+                                    <div class="col-6">
+                                        <small class="text-muted"><i class="bi bi-building"></i> {{ ad.floor }} этаж</small>
+                                    </div>
+                                {% endif %}
+                            </div>
+                            
                             {% if ad.location %}
-                                <br><i class="bi bi-geo-alt"></i> {{ ad.location.city }}{% if ad.location.district %}, {{ ad.location.district }}{% endif %}
+                                <div class="location-info">
+                                    <small class="text-muted">
+                                        <i class="bi bi-geo-alt"></i> 
+                                        {{ ad.location.city }}{% if ad.location.district %}, {{ ad.location.district }}{% endif %}
+                                    </small>
+                                </div>
+                            {% endif %}
+                            
+                            {% if ad.building_type or ad.condition or ad.furniture %}
+                                <div class="characteristics mt-2">
+                                    {% if ad.building_type %}
+                                        <span class="badge bg-light text-dark me-1">{{ ad.building_type }}</span>
+                                    {% endif %}
+                                    {% if ad.condition %}
+                                        <span class="badge bg-light text-dark me-1">{{ ad.condition }}</span>
+                                    {% endif %}
+                                    {% if ad.furniture %}
+                                        <span class="badge bg-light text-dark me-1">{{ ad.furniture }}</span>
+                                    {% endif %}
+                                </div>
                             {% endif %}
                         </div>
                         
