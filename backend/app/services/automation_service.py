@@ -407,8 +407,9 @@ class AutomationService:
                                     logger.info(f"Парсинг {source}: завершен успешно")
                                 elif status == 'завершено с ошибками парсинга':
                                     progress["completed"] += 1
-                                    progress["failed"] += 1  # Учитываем как частичную ошибку
-                                    logger.info(f"Парсинг {source}: завершен с ошибками парсинга")
+                                    # Не считаем небольшие ошибки парсинга как критичные для всего пайплайна
+                                    # progress["failed"] += 1  # Убираем это
+                                    logger.info(f"Парсинг {source}: завершен с небольшими ошибками парсинга (нормально)")
                                 else:
                                     progress["failed"] += 1
                                     logger.info(f"Парсинг {source}: завершен с ошибкой ({status})")

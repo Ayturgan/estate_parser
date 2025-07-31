@@ -15,11 +15,11 @@ def transform_location(db_location: DBLocation) -> Location:
 
 
 def transform_photos(db_photos: List[DBPhoto]) -> List[Photo]:
-    return [Photo(url=photo.url, hash=photo.hash) for photo in db_photos]
+    return [Photo(url=photo.url, hash=photo.perceptual_hashes) for photo in db_photos]
 
 
 def transform_unique_photos(db_photos: List[DBUniquePhoto]) -> List[UniquePhoto]:
-    return [UniquePhoto(url=photo.url, hash=photo.hash) for photo in db_photos]
+    return [UniquePhoto(url=photo.url, hash=photo.perceptual_hashes) for photo in db_photos]
 
 
 def to_elasticsearch_dict(ad: UniqueAd) -> dict:
@@ -52,7 +52,7 @@ def transform_unique_ad(db_unique_ad: DBUniqueAd) -> UniqueAd:
     for photo in db_unique_ad.photos:
         photos.append({
             'url': str(photo.url),
-            'hash': photo.hash
+            'hash': photo.perceptual_hashes
         })
     created_at = db_unique_ad.created_at.isoformat() if db_unique_ad.created_at else None
     updated_at = db_unique_ad.updated_at.isoformat() if db_unique_ad.updated_at else None
@@ -137,7 +137,7 @@ def transform_ad(db_ad: DBAd) -> Ad:
     for photo in db_ad.photos:
         photos.append({
             'url': str(photo.url),
-            'hash': photo.hash
+            'hash': photo.perceptual_hashes
         })
     published_at = db_ad.published_at.isoformat() if db_ad.published_at else None
     parsed_at = db_ad.parsed_at.isoformat() if db_ad.parsed_at else None

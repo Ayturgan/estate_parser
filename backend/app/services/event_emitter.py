@@ -99,7 +99,12 @@ class EventEmitter:
         if len(self.event_history) > self.max_history:
             self.event_history.pop(0)
         
-        logger.info(f"Event emitted: {event_type.value} from {source}")
+        # Проверяем тип event_type и безопасно получаем значение
+        if hasattr(event_type, 'value'):
+            event_type_str = event_type.value
+        else:
+            event_type_str = str(event_type)
+        logger.info(f"Event emitted: {event_type_str} from {source}")
         
         # Вызываем локальные слушатели
         if event_type in self.listeners:
@@ -117,9 +122,15 @@ class EventEmitter:
     
     async def broadcast_event(self, event: Event):
         """Отправляет событие через WebSocket"""
+        # Безопасно получаем значение event_type
+        if hasattr(event.type, 'value'):
+            event_type_str = event.type.value
+        else:
+            event_type_str = str(event.type)
+            
         message = {
             "type": "event",
-            "event_type": event.type.value,
+            "event_type": event_type_str,
             "data": event.data,
             "timestamp": event.timestamp.isoformat(),
             "source": event.source

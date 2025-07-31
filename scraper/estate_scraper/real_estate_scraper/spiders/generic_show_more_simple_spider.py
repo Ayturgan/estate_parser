@@ -29,6 +29,29 @@ class GenericShowMoreSimpleSpider(scrapy.Spider):
                 "--disable-renderer-backgrounding",
                 "--disable-ipc-flooding-protection",
                 "--memory-pressure-off",
+                "--max_old_space_size=4096",
+                "--disable-extensions",
+                "--disable-plugins",
+                "--disable-default-apps",
+                "--disable-sync",
+                "--disable-translate",
+                "--hide-scrollbars",
+                "--mute-audio",
+                "--no-first-run",
+                "--disable-background-networking",
+                "--disable-client-side-phishing-detection",
+                "--disable-component-update",
+                "--disable-domain-reliability",
+                "--disable-features=TranslateUI",
+                "--no-default-browser-check",
+                "--no-pings",
+                "--disable-web-security",
+                "--disable-features=VizDisplayCompositor",
+                "--disable-background-timer-throttling",
+                "--disable-backgrounding-occluded-windows",
+                "--disable-renderer-backgrounding",
+                "--disable-ipc-flooding-protection",
+                "--memory-pressure-off",
                 "--max_old_space_size=4096"
             ]
         },
@@ -69,21 +92,63 @@ class GenericShowMoreSimpleSpider(scrapy.Spider):
         self.config_name = os.environ.get('SCRAPY_CONFIG_NAME', config or 'unknown')
         self.scraping_logger = get_scraping_logger(self.job_id, self.config_name)
         self.has_parsing_errors = False # Флаг для отслеживания ошибок парсинга
+    
     def start_requests(self):
         """Начинает парсинг с главной страницы"""
         url = self.base_url + self.start_url
         self.logger.info(f"Starting scraping from: {url}")
-        
+
+        user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+        meta = {
+            'playwright': True,
+            'playwright_include_page': True,
+            'playwright_page_methods': [
+                PageMethod("wait_for_load_state", "networkidle"),
+                PageMethod("set_extra_http_headers", {
+                    'User-Agent': user_agent,
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                    'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
+                    'Accept-Encoding': 'gzip, deflate, br',
+                    'Connection': 'keep-alive',
+                    'Upgrade-Insecure-Requests': '1',
+                    'Sec-Fetch-Dest': 'document',
+                    'Sec-Fetch-Mode': 'navigate',
+                    'Sec-Fetch-Site': 'none',
+                    'Cache-Control': 'max-age=0'
+                }),
+                PageMethod("add_init_script", """
+                    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+                    delete window.cdc_adoQpoasnfa76pfcZLmcfl_Array;
+                    delete window.cdc_adoQpoasnfa76pfcZLmcfl_Promise;
+                    delete window.cdc_adoQpoasnfa76pfcZLmcfl_Symbol;
+                    Object.defineProperty(navigator, 'plugins', { get: () => [1,2,3,4,5] });
+                    Object.defineProperty(navigator, 'languages', { get: () => ['ru-RU', 'ru', 'en-US', 'en'] });
+                    window.chrome = { runtime: {} };
+                    const originalQuery = window.navigator.permissions.query;
+                    window.navigator.permissions.query = (parameters) => (
+                        parameters.name === 'notifications' ?
+                            Promise.resolve({ state: Notification.permission }) :
+                            originalQuery(parameters)
+                    );
+                """),
+            ],
+            "playwright_context_kwargs": {
+                "viewport": {"width": 1280, "height": 800},
+                "user_data_dir": "/tmp/playwright_agency_user_data",
+            }
+        }
+
+        headers = {
+            "User-Agent": user_agent,
+            "Accept-Language": "ru-RU,ru;q=0.9",
+        }
+
         yield scrapy.Request(
             url,
             callback=self.parse,
-            meta={
-                'playwright': True,
-                'playwright_include_page': True,
-                'playwright_page_methods': [
-                    PageMethod("wait_for_load_state", "networkidle"),
-                ]
-            },
+            meta=meta,
+            headers=headers,
             errback=self.handle_error,
             dont_filter=True
         )
@@ -95,6 +160,50 @@ class GenericShowMoreSimpleSpider(scrapy.Spider):
         if not page:
             self.logger.error("Playwright page not found")
             return
+
+        # 🛡️ Дополнительные stealth методы для agency.kg
+        if 'agency.kg' in self.base_url:
+            try:
+                self.logger.info("🛡️ Applying additional stealth methods")
+                
+                # Эмуляция человеческого поведения через синхронный вызов
+                page.evaluate("""
+                    // Эмуляция движений мыши
+                    const originalMouseEvent = window.MouseEvent;
+                    window.MouseEvent = function(type, init) {
+                        const event = new originalMouseEvent(type, init);
+                        Object.defineProperty(event, 'isTrusted', { value: true });
+                        return event;
+                    };
+                    
+                    // Эмуляция фокуса
+                    const originalFocus = HTMLElement.prototype.focus;
+                    HTMLElement.prototype.focus = function() {
+                        this.dispatchEvent(new Event('focus', { bubbles: true }));
+                        return originalFocus.call(this);
+                    };
+                    
+                    // Скрываем автоматизацию
+                    Object.defineProperty(navigator, 'webdriver', {
+                        get: () => undefined,
+                        configurable: true
+                    });
+                    
+                    // Эмуляция времени загрузки
+                    Object.defineProperty(performance, 'timing', {
+                        get: () => ({
+                            navigationStart: Date.now() - Math.random() * 1000,
+                            loadEventEnd: Date.now(),
+                            domContentLoadedEventEnd: Date.now() - 100
+                        })
+                    });
+                """)
+                
+                # Ждем немного для эмуляции человеческого поведения
+                page.wait_for_timeout(2000 + random.randint(1000, 3000))
+                
+            except Exception as e:
+                self.logger.warning(f"Stealth methods failed: {e}")
 
         # Получаем настройки кнопки "Показать еще"
         show_more_enabled = self.show_more_settings.get('enabled', False)

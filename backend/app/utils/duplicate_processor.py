@@ -10,7 +10,42 @@ import asyncio
 from app.database.db_models import DBAd, DBUniqueAd, DBAdDuplicate, DBUniquePhoto
 from app.services.ai_data_extractor import get_cached_gliner_model
 
+# Импорты для CLIP модели
+try:
+    from transformers import CLIPProcessor, CLIPModel
+    import torch
+    CLIP_AVAILABLE = True
+except ImportError:
+    CLIP_AVAILABLE = False
+    logging.warning("CLIP модель недоступна. Установите transformers и torch для полной функциональности.")
+
 logger = logging.getLogger(__name__)
+
+# Глобальные переменные для кэширования моделей
+_clip_model = None
+_clip_processor = None
+_clip_loaded = False
+
+def get_clip_model():
+    """Возвращает кэшированную CLIP модель"""
+    global _clip_model, _clip_processor, _clip_loaded
+    
+    if not CLIP_AVAILABLE:
+        return None, None
+    
+    if not _clip_loaded:
+        try:
+            logger.info("Загружаем CLIP модель для дедупликации...")
+            _clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
+            _clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
+            _clip_loaded = True
+            logger.info("CLIP модель загружена успешно")
+        except Exception as e:
+            logger.warning(f"Не удалось загрузить CLIP модель: {e}")
+            _clip_model = None
+            _clip_processor = None
+    
+    return _clip_model, _clip_processor
 
 # Импорт event_emitter для отправки событий
 try:
@@ -57,20 +92,31 @@ class DuplicateProcessor:
         self.gliner_model = get_gliner_model()
         self.realtor_threshold = realtor_threshold
         
-        # Конфигурация для ОЧЕНЬ СТРОГОЙ дедупликации
+        # Инициализация CLIP модели (используем кэшированную)
+        # self.clip_model, self.clip_processor = get_clip_model()  # Отключаем CLIP
+        self.clip_model, self.clip_processor = None, None
+        
+        # Конфигурация для сбалансированной дедупликации с правильными весами
         self.config = {
-            'semantic_top_k': 5,          # Еще меньше кандидатов для анализа
-            'semantic_threshold': 0.75,   # Очень высокий порог семантики
+            'semantic_top_k': 10,         # Кандидаты для анализа
+            'semantic_threshold': 0.7,    # Порог семантики
             'weights': {
-                'characteristics': 0.85,   # Увеличиваем вес точных характеристик еще больше
-                'address': 0.1,           # Уменьшаем вес адреса еще больше
+                'characteristics': 0.6,   # Основные характеристики (площадь, комнаты, этаж)
+                'perceptual_photos': 0.3, # Перцептивные хеши фотографий
+                'clip_photos': 0.0,       # CLIP эмбеддинги фотографий (отключено)
+                'text': 0.05,             # Текстовое описание
+                'address': 0.05,          # Адрес (минимальный вес)
             },
-            'similarity_threshold': 0.90, # Очень высокий порог для финального решения
-            'area_tolerance_percent': 2,  # Допуск по площади в процентах (±1%)
-            'floor_tolerance_abs': 0,     # Этаж должен совпадать точно (0 - точное совпадение)
+            'similarity_threshold': 0.8,  # Общий порог для дубликата
+            'photo_similarity_threshold': 0.7,  # Порог схожести фотографий
+            'characteristics_similarity_threshold': 0.8,  # Порог схожести характеристик
+            'area_tolerance_percent': 5,  # Допуск по площади в процентах (±5%)
+            'floor_tolerance_abs': 1,     # Допуск по этажу (±1 этаж)
+            'photo_early_stop_threshold': 0.8,  # Порог для ранней остановки поиска совпадений
+            'photo_required_threshold': 0.6,  # МИНИМАЛЬНЫЙ порог для обязательного совпадения фотографий
         }
     
-    def process_new_ads_batch(self, batch_size: int = 100) -> int:
+    def process_new_ads_batch(self, batch_size: int = 1000) -> int:
         """Обрабатывает батч необработанных объявлений"""
         unprocessed_ads = self.db.query(DBAd).filter(
             and_(
@@ -110,7 +156,8 @@ class DuplicateProcessor:
         # Шаг 1: Создаем унифицированный профиль для нового объявления
         ad_characteristics = self._get_unified_characteristics(ad)
         
-        ad_photo_hashes = [photo.hash for photo in ad.photos if photo.hash]
+        ad_photo_hashes = [photo.perceptual_hashes for photo in ad.photos 
+                          if photo.perceptual_hashes and isinstance(photo.perceptual_hashes, dict)]
         text_embeddings = self._get_text_embeddings(ad, ad_characteristics)
         
         # Шаг 2: Ищем похожие объявления
@@ -165,6 +212,10 @@ class DuplicateProcessor:
 
     def _get_text_embeddings(self, ad: DBAd, characteristics: Dict) -> np.ndarray:
         """Создает эмбеддинги, обогащая текст извлеченными характеристиками."""
+        if self.text_model is None:
+            logger.warning("Text model not available, returning empty embedding")
+            return np.array([])
+            
         text_parts = [
             ad.title.strip() if ad.title else "",
             ad.description.strip() if ad.description else ""
@@ -172,23 +223,33 @@ class DuplicateProcessor:
         
         # Добавляем только извлеченные и подтвержденные характеристики
         char_text = []
-        if characteristics.get('rooms'): char_text.append(f"{characteristics['rooms']} комн")
-        if characteristics.get('area_sqm'): char_text.append(f"{characteristics['area_sqm']} кв.м")
-        if characteristics.get('floor'): char_text.append(f"этаж {characteristics['floor']}")
+        if characteristics.get('rooms') is not None: char_text.append(f"{characteristics['rooms']} комн")
+        if characteristics.get('area_sqm') is not None: char_text.append(f"{characteristics['area_sqm']} кв.м")
+        if characteristics.get('floor') is not None: char_text.append(f"этаж {characteristics['floor']}")
         
         if char_text:
             text_parts.append(" ".join(char_text))
         
-        full_text = ' '.join(filter(None, text_parts))
+        # Фильтруем None значения и пустые строки
+        filtered_parts = [part for part in text_parts if part is not None and part.strip()]
+        full_text = ' '.join(filtered_parts)
         full_text = ' '.join(full_text.split())
         
-        return self.text_model.encode(full_text)
+        if not full_text.strip():
+            logger.warning("Empty text for embedding, returning empty array")
+            return np.array([])
+            
+        try:
+            return self.text_model.encode(full_text)
+        except Exception as e:
+            logger.error(f"Error encoding text: {e}")
+            return np.array([])
     
     def _find_similar_unique_ads(
         self,
         ad: DBAd,
         ad_characteristics: Dict,
-        ad_photo_hashes: List[str],
+        ad_photo_hashes: List[Dict[str, str]],
         text_embeddings: np.ndarray
     ) -> List[Tuple[DBUniqueAd, float]]:
         
@@ -224,15 +285,65 @@ class DuplicateProcessor:
             characteristics_sim = self._calculate_property_characteristics_similarity(
                 ad_characteristics, unique_ad_characteristics
             )
+            
+            # Получаем перцептивные хеши для unique_ad
+            unique_ad_photo_hashes = [photo.perceptual_hashes for photo in unique_ad.photos if photo.perceptual_hashes]
+            
+            # Перцептивные хеши фотографий
+            perceptual_photo_sim = self._calculate_photo_similarity(ad_photo_hashes, unique_ad_photo_hashes)
+            
+            # Получаем CLIP эмбеддинги для обоих объявлений (отключено)
+            # ad_clip_embeddings = [photo.clip_embedding for photo in ad.photos if photo.clip_embedding]
+            # unique_ad_clip_embeddings = [photo.clip_embedding for photo in unique_ad.photos if photo.clip_embedding]
+            
+            # CLIP эмбеддинги фотографий (отключено)
+            clip_photo_sim = 0.0
+            # if self.clip_model and ad_clip_embeddings and unique_ad_clip_embeddings:
+            #     clip_photo_sim = self._calculate_clip_embedding_similarity(
+            #         ad_clip_embeddings, unique_ad_clip_embeddings
+            #     )
+            
+            text_sim = self._calculate_text_similarity(
+                text_embeddings,
+                np.array(unique_ad.text_embeddings) if unique_ad.text_embeddings else np.array([])
+            )
             address_sim = self._calculate_address_similarity_with_unique(ad, unique_ad)
             
             weights = self.config['weights']
-            overall_sim = (characteristics_sim * weights['characteristics'] + address_sim * weights['address'])
+            overall_sim = (
+                characteristics_sim * weights['characteristics'] + 
+                perceptual_photo_sim * weights['perceptual_photos'] + 
+                clip_photo_sim * weights['clip_photos'] + 
+                text_sim * weights['text'] + 
+                address_sim * weights['address']
+            )
             
-            logger.info(f"Detailed analysis for ad {ad.id} vs unique {unique_ad.id}: Overall sim: {overall_sim:.2f}")
+            logger.info(f"Detailed analysis for ad {ad.id} vs unique {unique_ad.id}: "
+                       f"Characteristics: {characteristics_sim:.2f}, "
+                       f"Perceptual Photos: {perceptual_photo_sim:.2f}, "
+                       f"CLIP Photos: {clip_photo_sim:.2f}, "
+                       f"Text: {text_sim:.2f}, Address: {address_sim:.2f}, "
+                       f"Overall: {overall_sim:.2f}")
             
-            if overall_sim > self.config['similarity_threshold']:
-                similar_ads.append((unique_ad, overall_sim))
+            # НОВАЯ ЛОГИКА: ОБЯЗАТЕЛЬНОЕ условие - хотя бы одно совпадение фотографий
+            photo_sim_combined = perceptual_photo_sim  # Только перцептивные хеши
+            
+            logger.info(f"🔍 Проверка фото для ad {ad.id} vs unique {unique_ad.id}: "
+                       f"photo_sim={photo_sim_combined:.3f}, required_threshold={self.config['photo_required_threshold']}")
+            
+            # Проверяем обязательное условие: должно быть хотя бы одно совпадение фотографий
+            if photo_sim_combined >= self.config['photo_required_threshold']:  # Есть хотя бы одно совпадение фотографий
+                if (characteristics_sim >= self.config['characteristics_similarity_threshold'] and 
+                    photo_sim_combined >= self.config['photo_similarity_threshold'] and 
+                    overall_sim > self.config['similarity_threshold']):
+                    similar_ads.append((unique_ad, overall_sim))
+                    logger.info(f"✅ Найден дубликат с обязательным совпадением фото: {photo_sim_combined:.3f}")
+                else:
+                    logger.info(f"❌ Не прошли дополнительные проверки: characteristics={characteristics_sim:.3f}, "
+                              f"photo_threshold={self.config['photo_similarity_threshold']}, overall={overall_sim:.3f}")
+            else:
+                # Нет совпадений фотографий - НЕ дубликат
+                logger.info(f"❌ Нет совпадений фотографий для ad {ad.id} vs unique {unique_ad.id} - НЕ дубликат")
         
         return sorted(similar_ads, key=lambda x: x[1], reverse=True)
     
@@ -259,10 +370,16 @@ class DuplicateProcessor:
         # 1. Площадь - более мягкая проверка
         area1, area2 = char1.get('area_sqm'), char2.get('area_sqm')
         if area1 is not None and area2 is not None:
-            tolerance = area1 * (self.config['area_tolerance_percent'] / 100.0)
-            if abs(area1 - area2) > tolerance:
-                logger.debug(f"Critical mismatch: area {area1} vs {area2}")
-                return False # Площадь не совпадает
+            try:
+                area1_float = float(area1)
+                area2_float = float(area2)
+                tolerance = area1_float * (self.config['area_tolerance_percent'] / 100.0)
+                if abs(area1_float - area2_float) > tolerance:
+                    logger.debug(f"Critical mismatch: area {area1_float} vs {area2_float}")
+                    return False # Площадь не совпадает
+            except (TypeError, ValueError) as e:
+                logger.warning(f"Error comparing areas {area1} vs {area2}: {e}")
+                # Если не можем сравнить площади, продолжаем
         # Убираем строгую проверку - если у одного есть площадь, а у другого нет, все равно сравниваем
 
         # 2. Комнаты - более мягкая проверка
@@ -325,11 +442,129 @@ class DuplicateProcessor:
 
         return True # Все критические проверки пройдены
     
-    def _calculate_photo_similarity(self, hashes1: List[str], hashes2: List[str]) -> float:
-        if not hashes1 or not hashes2: return 0.0
-        matches = len(set(hashes1) & set(hashes2))
-        total = len(set(hashes1) | set(hashes2))
-        return matches / total if matches > 0 else 0.0
+    def _calculate_photo_similarity(self, hashes1: List[Dict[str, str]], hashes2: List[Dict[str, str]]) -> float:
+        """Вычисляет схожесть на основе перцептивных хешей - НОВАЯ ЛОГИКА: хотя бы одно совпадение"""
+        if not hashes1 or not hashes2: 
+            logger.debug("Пустые списки хешей для сравнения")
+            return 0.0
+        
+        # НОВАЯ ЛОГИКА: Ищем хотя бы одно совпадение среди всех фотографий
+        best_similarity = 0.0
+        found_match = False
+        
+        for hash_dict1 in hashes1:
+            for hash_dict2 in hashes2:
+                # Проверяем тип и валидность хешей
+                if not isinstance(hash_dict1, dict) or not isinstance(hash_dict2, dict):
+                    logger.debug(f"Пропускаем невалидные хеши: {type(hash_dict1)} vs {type(hash_dict2)}")
+                    continue
+                    
+                # Сравниваем только точные хеши (pHash и dHash более надежны)
+                for hash_type in ['pHash', 'dHash']:
+                    if hash_type in hash_dict1 and hash_type in hash_dict2:
+                        hash1 = hash_dict1[hash_type]
+                        hash2 = hash_dict2[hash_type]
+                        
+                        # Проверяем валидность хешей
+                        if hash1 and hash2 and isinstance(hash1, str) and isinstance(hash2, str):
+                            try:
+                                # Вычисляем расстояние Хэмминга
+                                distance = sum(c1 != c2 for c1, c2 in zip(hash1, hash2))
+                                max_distance = len(hash1)
+                                similarity = 1.0 - (distance / max_distance)
+                                
+                                logger.info(f"🔍 {hash_type}: hash1={hash1[:8]}..., hash2={hash2[:8]}..., "
+                                          f"distance={distance}, similarity={similarity:.3f}")
+                                
+                                # НОВАЯ ЛОГИКА: Запоминаем лучшее совпадение
+                                if similarity > best_similarity:
+                                    best_similarity = similarity
+                                    found_match = True
+                                    logger.info(f"🎯 Новое лучшее совпадение {hash_type}: {similarity:.3f}")
+                                    
+                                # Если нашли очень хорошее совпадение, можно остановиться
+                                if similarity >= self.config['photo_early_stop_threshold']:
+                                    logger.info(f"🏆 Найдено отличное совпадение {hash_type}: {similarity:.3f}")
+                                    return similarity
+                                    
+                            except Exception as e:
+                                logger.warning(f"Ошибка вычисления расстояния Хэмминга для {hash_type}: {e}")
+                                continue
+                        else:
+                            logger.debug(f"Пропускаем невалидные хеши {hash_type}: {hash1} vs {hash2}")
+        
+        # Возвращаем лучшее найденное совпадение
+        result = best_similarity if found_match else 0.0
+        logger.info(f"📸 Схожесть фото: {result:.3f} (найдено совпадений: {found_match})")
+        return result
+    
+    def _calculate_clip_embedding_similarity(self, embeddings1: List[np.ndarray], embeddings2: List[np.ndarray]) -> float:
+        """
+        Вычисляет схожесть на основе CLIP эмбеддингов
+        
+        Args:
+            embeddings1: CLIP эмбеддинги первого объявления
+            embeddings2: CLIP эмбеддинги второго объявления
+            
+        Returns:
+            Средняя схожесть по всем парам изображений
+        """
+        if not embeddings1 or not embeddings2:
+            logger.debug("Пустые списки эмбеддингов для сравнения")
+            return 0.0
+        
+        if self.clip_model is None:
+            logger.warning("CLIP модель недоступна для вычисления схожести")
+            return 0.0
+        
+        total_similarity = 0.0
+        total_comparisons = 0
+        
+        for emb1 in embeddings1:
+            for emb2 in embeddings2:
+                # Проверяем валидность эмбеддингов
+                if emb1 is not None and emb2 is not None:
+                    try:
+                        # Проверяем размерности
+                        if len(emb1) == 0 or len(emb2) == 0:
+                            logger.debug("Пропускаем пустые эмбеддинги")
+                            continue
+                        
+                        # Конвертируем в numpy массивы если нужно
+                        if not isinstance(emb1, np.ndarray):
+                            emb1 = np.array(emb1, dtype=np.float32)
+                        if not isinstance(emb2, np.ndarray):
+                            emb2 = np.array(emb2, dtype=np.float32)
+                        
+                        # Проверяем, что это векторы
+                        if emb1.ndim != 1 or emb2.ndim != 1:
+                            logger.warning(f"Неверная размерность эмбеддингов: {emb1.shape} vs {emb2.shape}")
+                            continue
+                        
+                        # Нормализуем эмбеддинги
+                        norm1 = np.linalg.norm(emb1)
+                        norm2 = np.linalg.norm(emb2)
+                        
+                        if norm1 == 0 or norm2 == 0:
+                            logger.debug("Пропускаем нулевые эмбеддинги")
+                            continue
+                        
+                        emb1_norm = emb1 / norm1
+                        emb2_norm = emb2 / norm2
+                        
+                        # Вычисляем косинусное сходство
+                        similarity = np.dot(emb1_norm, emb2_norm)
+                        total_similarity += similarity
+                        total_comparisons += 1
+                    except Exception as e:
+                        logger.warning(f"Ошибка вычисления CLIP схожести: {e}")
+                        continue
+                else:
+                    logger.debug("Пропускаем None эмбеддинги")
+        
+        result = total_similarity / total_comparisons if total_comparisons > 0 else 0.0
+        logger.debug(f"Схожесть по CLIP эмбеддингам: {result:.3f} (сравнений: {total_comparisons})")
+        return result
     
     def _calculate_text_similarity(self, emb1, emb2) -> float:
         if emb1 is None or emb2 is None or len(emb1) == 0 or len(emb2) == 0: return 0.0
@@ -376,7 +611,16 @@ class DuplicateProcessor:
             # Если только в одном, то это уже отловлено в _check_critical_match
 
         # Основные характеристики (поля БД)
-        compare('area_sqm', 1.0, char1.get('area_sqm', 1) * (self.config['area_tolerance_percent'] / 100.0))
+        area1_val = char1.get('area_sqm')
+        if area1_val is not None:
+            try:
+                area1_float = float(area1_val)
+                tolerance = area1_float * (self.config['area_tolerance_percent'] / 100.0)
+                compare('area_sqm', 1.0, tolerance)
+            except (TypeError, ValueError):
+                compare('area_sqm', 1.0, 0)  # Если не можем вычислить tolerance, используем 0
+        else:
+            compare('area_sqm', 1.0, 0)  # Если нет площади, используем tolerance 0
         compare('rooms', 1.0)
         compare('floor', 0.8, self.config['floor_tolerance_abs'])
         compare('total_floors', 0.7)
@@ -457,8 +701,10 @@ class DuplicateProcessor:
         similarity: float
     ):
         """Обрабатывает найденный дубликат БЕЗ ОБНОВЛЕНИЯ УНИКАЛЬНОГО ОБЪЯВЛЕНИЯ"""
-        ad_photo_hashes = [photo.hash for photo in ad.photos if photo.hash]
-        unique_ad_photo_hashes = [photo.hash for photo in unique_ad.photos if photo.hash]
+        ad_photo_hashes = [photo.perceptual_hashes for photo in ad.photos 
+                          if photo.perceptual_hashes and isinstance(photo.perceptual_hashes, dict)]
+        unique_ad_photo_hashes = [photo.perceptual_hashes for photo in unique_ad.photos 
+                                 if photo.perceptual_hashes and isinstance(photo.perceptual_hashes, dict)]
         
         # Получаем унифицированные характеристики для детального логирования
         ad_characteristics = self._get_unified_characteristics(ad)
@@ -468,18 +714,42 @@ class DuplicateProcessor:
             ad_characteristics, unique_ad_characteristics
         )
         
+        # Вычисляем все схожести для записи в БД
+        perceptual_photo_sim = self._calculate_photo_similarity(ad_photo_hashes, unique_ad_photo_hashes)
+        
+        # Получаем CLIP эмбеддинги для обоих объявлений (отключено)
+        # ad_clip_embeddings = [photo.clip_embedding for photo in ad.photos 
+        #                      if photo.clip_embedding and isinstance(photo.clip_embedding, list)]
+        # unique_ad_clip_embeddings = [photo.clip_embedding for photo in unique_ad.photos 
+        #                             if photo.clip_embedding and isinstance(photo.clip_embedding, list)]
+        
+        # CLIP эмбеддинги фотографий (отключено)
+        clip_photo_sim = 0.0
+        # if self.clip_model and ad_clip_embeddings and unique_ad_clip_embeddings:
+        #     clip_photo_sim = self._calculate_clip_embedding_similarity(
+        #         ad_clip_embeddings, unique_ad_clip_embeddings
+        #     )
+        
+        # Общая схожесть фотографий (только перцептивные хеши)
+        photo_sim_combined = perceptual_photo_sim
+        
+        text_sim = self._calculate_text_similarity(
+            self._get_text_embeddings(ad, ad_characteristics),
+            np.array(unique_ad.text_embeddings) if unique_ad.text_embeddings else np.array([])
+        )
+        contact_sim = self._calculate_contact_similarity(ad.phone_numbers, unique_ad.phone_numbers)
+        address_sim = self._calculate_address_similarity_with_unique(ad, unique_ad)
+        
+        # Конвертируем numpy типы в обычные float для PostgreSQL
         duplicate = DBAdDuplicate(
             unique_ad_id=unique_ad.id,
             original_ad_id=ad.id,
-            photo_similarity=self._calculate_photo_similarity(ad_photo_hashes, unique_ad_photo_hashes),
-            text_similarity=self._calculate_text_similarity(
-                self._get_text_embeddings(ad, ad_characteristics),
-                np.array(unique_ad.text_embeddings) if unique_ad.text_embeddings else np.array([])
-            ),
-            contact_similarity=self._calculate_contact_similarity(ad.phone_numbers, unique_ad.phone_numbers),
-            address_similarity=self._calculate_address_similarity_with_unique(ad, unique_ad),
-            characteristics_similarity=characteristics_sim,
-            overall_similarity=similarity
+            photo_similarity=float(photo_sim_combined),
+            text_similarity=float(text_sim),
+            contact_similarity=float(contact_sim),
+            address_similarity=float(address_sim),
+            characteristics_similarity=float(characteristics_sim),
+            overall_similarity=float(similarity)
         )
         self.db.add(duplicate)
         
@@ -488,14 +758,29 @@ class DuplicateProcessor:
         ad.unique_ad_id = unique_ad.id
         unique_ad.duplicates_count = (unique_ad.duplicates_count or 0) + 1
         
-        logger.info(f"Ad {ad.id} marked as duplicate of unique ad {unique_ad.id}. Duplicates count: {unique_ad.duplicates_count}")
+        logger.info(f"Ad {ad.id} marked as duplicate of unique ad {unique_ad.id}. "
+                   f"Similarities: Perceptual={perceptual_photo_sim:.2f}, CLIP={clip_photo_sim:.2f}, "
+                   f"Text={text_sim:.2f}, Characteristics={characteristics_sim:.2f}, "
+                   f"Overall={similarity:.2f}. Duplicates count: {unique_ad.duplicates_count}")
         if event_emitter:
-            event_emitter.emit('ad_duplicate_found', {'ad_id': ad.id, 'unique_ad_id': unique_ad.id})
+            try:
+                # Используем правильный асинхронный вызов
+                import asyncio
+                from app.services.event_emitter import EventType
+                # Создаем задачу в текущем event loop
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    loop.create_task(event_emitter.emit(EventType.DUPLICATE_DETECTED, {'ad_id': ad.id, 'unique_ad_id': unique_ad.id}))
+                else:
+                    # Если loop не запущен, просто логируем
+                    logger.info(f"Event loop not running, skipping event emission")
+            except Exception as e:
+                logger.warning(f"Failed to emit event: {e}")
     
     def _create_unique_ad(
         self,
         ad: DBAd,
-        ad_photo_hashes: List[str],
+        ad_photo_hashes: List[Dict[str, str]],
         text_embeddings: np.ndarray
     ) -> DBUniqueAd:
         """Создает новое уникальное объявление"""
@@ -533,14 +818,26 @@ class DuplicateProcessor:
         self.db.refresh(unique_ad)
         
         for photo in ad.photos:
-            unique_photo = DBUniquePhoto(url=photo.url, hash=photo.hash, unique_ad_id=unique_ad.id)
+            unique_photo = DBUniquePhoto(url=photo.url, perceptual_hashes=photo.perceptual_hashes, clip_embedding=photo.clip_embedding, unique_ad_id=unique_ad.id)
             self.db.add(unique_photo)
             
         ad.is_duplicate = False
         ad.unique_ad_id = unique_ad.id
         logger.info(f"Created new unique ad {unique_ad.id} from base ad {ad.id}.")
         if event_emitter:
-            event_emitter.emit('new_unique_ad', {'unique_ad_id': unique_ad.id, 'base_ad_id': ad.id})
+            try:
+                # Используем правильный асинхронный вызов
+                import asyncio
+                from app.services.event_emitter import EventType
+                # Создаем задачу в текущем event loop
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    loop.create_task(event_emitter.emit(EventType.NEW_AD_CREATED, {'unique_ad_id': unique_ad.id, 'base_ad_id': ad.id}))
+                else:
+                    # Если loop не запущен, просто логируем
+                    logger.info(f"Event loop not running, skipping event emission")
+            except Exception as e:
+                logger.warning(f"Failed to emit event: {e}")
         
         return unique_ad
 

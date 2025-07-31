@@ -11,12 +11,12 @@ class Location(BaseModel):
 
 class Photo(BaseModel):
     url: HttpUrl = Field(..., description="URL фотографии")
-    hash: Optional[str] = Field(None, description="Perceptual hash изображения для сравнения дубликатов")
+    hash: Optional[Dict[str, str]] = Field(None, description="Perceptual hashes изображения для сравнения дубликатов")
 
 
 class UniquePhoto(BaseModel):
     url: HttpUrl = Field(..., description="URL фотографии")
-    hash: Optional[str] = Field(None, description="Perceptual hash изображения для сравнения дубликатов")
+    hash: Optional[Dict[str, str]] = Field(None, description="Perceptual hashes изображения для сравнения дубликатов")
 
 
 class DuplicateInfo(BaseModel):

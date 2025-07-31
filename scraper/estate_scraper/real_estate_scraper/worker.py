@@ -30,16 +30,16 @@ PARSING_ERROR_PATTERNS = [
     r"Required selectors.*not found",
     r"No ads container found",
     r"Error processing item",
-    # Сетевые ошибки
+    # Критические сетевые ошибки
     r"DNS lookup failed",
     r"Connection refused",
-    r"Connection timeout",
     r"Network unreachable",
     r"Host unreachable",
     r"Request failed",
     r"HTTP запрос неуспешен",
     r"Gave up retrying",
-    r"Downloader/exception_count"
+    # Исключаем небольшие ошибки загрузки - они нормальны
+    # r"Downloader/exception_count"  # Убираем этот паттерн
 ]
 
 # Паттерны для распознавания успешного завершения
@@ -47,7 +47,9 @@ SUCCESS_PATTERNS = [
     r"Spider closed.*success",
     r"Items scraped.*\d+",
     r"✅.*successfully",
-    r"Successfully extracted"
+    r"Successfully extracted",
+    r"item_scraped_count.*\d+",  # Добавляем проверку статистики
+    r"finish_reason.*finished"    # Добавляем проверку причины завершения
 ]
 
 
@@ -121,7 +123,7 @@ def monitor_process_with_stop_check(proc, job_id):
                 except Exception as e:
                     print(f"[Worker] Ошибка остановки процесса {job_id}: {e}")
                 
-                return True  # Задача была остановлена
+                return (True, False, False)  # Задача была остановлена
             
             last_check_time = current_time
         

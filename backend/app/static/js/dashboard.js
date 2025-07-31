@@ -163,21 +163,19 @@ document.addEventListener('DOMContentLoaded', function() {
         if (window.statsData) {
             initializeDashboardCharts(window.statsData);
         } else {
-            console.error("Статистические данные (window.statsData) не найдены.");
-        }
-        
-        // Настройка WebSocket событий для дашборда
-        if (window.realtimeClient) { 
-            window.realtimeClient.on('stats_update', function(data) {
-                if (data.sources_stats) {
-                    createSourcesChart(data.sources_stats);
-                }
-                if (data.activity_stats) {
-                    createActivityChart(data.activity_stats);
-                }
-                // Для графика дедупликации нужны общие цифры
-                createDeduplicationChart(data);
-            });
+            // Настройка WebSocket событий для дашборда
+            if (window.realtimeClient) { 
+                window.realtimeClient.on('stats_update', function(data) {
+                    if (data.sources_stats) {
+                        createSourcesChart(data.sources_stats);
+                    }
+                    if (data.activity_stats) {
+                        createActivityChart(data.activity_stats);
+                    }
+                    // Для графика дедупликации нужны общие цифры
+                    createDeduplicationChart(data);
+                });
+            }
         }
     }
 }); 

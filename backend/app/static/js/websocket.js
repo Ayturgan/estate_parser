@@ -20,20 +20,12 @@ class WebSocketClient {
     
     // Диагностика среды для ngrok
     diagnoseEnvironment() {
-        console.log('🔍 Диагностика WebSocket среды:');
-        console.log('- Протокол:', window.location.protocol);
-        console.log('- Хост:', window.location.host);
-        console.log('- Порт:', window.location.port);
-        console.log('- Путь:', window.location.pathname);
-        
         const isNgrok = window.location.host.includes('ngrok') || window.location.host.includes('ngrok-free.app');
-        console.log('- Ngrok обнаружен:', isNgrok);
-        
         if (isNgrok) {
-            console.log('⚠️  Ngrok обнаружен. Требования:');
-            console.log('  1. Запустить ngrok с: ngrok http 8000 --host-header=rewrite');
-            console.log('  2. Убедиться что WebSocket поддерживается');
-            console.log('  3. Проверить что сервер работает на порту 8000');
+            // Ngrok обнаружен. Требования:
+            // 1. Запустить ngrok с: ngrok http 8000 --host-header=rewrite
+            // 2. Убедиться что WebSocket поддерживается
+            // 3. Проверить что сервер работает на порту 8000
         }
     }
     
@@ -41,38 +33,31 @@ class WebSocketClient {
     initAuthListener() {
         // Подключаемся при получении токена
         window.addEventListener('auth_token_received', (e) => {
-            console.log('🔑 Получен токен, запускаем WebSocket...');
             this.connect(e.detail.token);
         });
         
         // Отключаемся при выходе из системы
         window.addEventListener('auth_logout', () => {
-            console.log('🚪 Выход из системы, закрываем WebSocket');
             this.disconnect();
         });
         
         // Проверяем, есть ли уже токен при загрузке страницы
         const existingToken = getAuthToken();
         if (existingToken) {
-            console.log('🔑 Найден существующий токен, подключаемся...');
-            console.log('🔑 Токен:', existingToken ? '✅ Есть' : '❌ Нет');
             this.connect(existingToken);
         } else {
-            console.log('❌ Токен не найден, ждем авторизации...');
+            // Токен не найден, ждем авторизации...
         }
     }
     
     // HTTP polling для ngrok (альтернатива WebSocket)
     initHttpPolling(token) {
-        console.log('🔄 Инициализация HTTP polling для ngrok...');
-        console.log('🔄 Токен для polling:', token ? '✅ Есть' : '❌ Нет');
         this.pollingToken = token;
         this.pollingInterval = null;
         this.lastEventId = 0;
         
         // Эмулируем подключение
         this.isConnected = true;
-        console.log('🔄 Устанавливаем индикатор подключения...');
         setRealtimeIndicator(true);
         
         // Запускаем polling
@@ -83,8 +68,6 @@ class WebSocketClient {
         
         // Запрашиваем начальные данные
         this.requestInitialData();
-        
-        console.log('✅ HTTP polling инициализирован успешно!');
     }
     
     startPolling() {
@@ -95,31 +78,24 @@ class WebSocketClient {
         this.pollingInterval = setInterval(() => {
             this.pollForUpdates();
         }, 2000); // Опрашиваем каждые 2 секунды
-        
-        console.log('📡 HTTP polling запущен (каждые 2 секунды)');
     }
     
     async pollForUpdates() {
         try {
-            console.log('📡 Выполняем HTTP polling...');
             const response = await fetch('/api/stats', {
                 headers: {
                     'Authorization': `Bearer ${this.pollingToken}`
                 }
             });
             
-            console.log('📡 HTTP polling ответ:', response.status);
-            
             if (response.ok) {
                 const data = await response.json();
-                console.log('📡 Получены данные через polling:', Object.keys(data));
-                // Эмулируем WebSocket событие
                 this.handleInitialStats(data);
             } else {
-                console.error('❌ HTTP polling ошибка:', response.status, response.statusText);
+                // HTTP polling ошибка:
             }
         } catch (error) {
-            console.error('❌ Ошибка HTTP polling:', error);
+            // Ошибка HTTP polling:
         }
     }
     
@@ -151,7 +127,7 @@ class WebSocketClient {
                 }
             }
         } catch (error) {
-            console.error('Ошибка запроса начальных данных:', error);
+            // Ошибка запроса начальных данных:
         }
     }
     
@@ -160,7 +136,6 @@ class WebSocketClient {
             clearInterval(this.pollingInterval);
             this.pollingInterval = null;
         }
-        console.log('📡 HTTP polling остановлен');
     }
     
     // Система событий
@@ -187,7 +162,7 @@ class WebSocketClient {
                 try {
                     handler(data);
                 } catch (error) {
-                    console.error(`Error in event handler for ${eventType}:`, error);
+                    // Error in event handler for ${eventType}:
                 }
             });
         }
@@ -195,18 +170,16 @@ class WebSocketClient {
     
     connect(token) {
         if (!token) {
-            console.error('❌ Попытка подключения WebSocket без токена.');
+            // Попытка подключения WebSocket без токена.
             return;
         }
 
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-            console.log('WebSocket уже подключен. Переподключаемся для обновления токена...');
+            // WebSocket уже подключен. Переподключаемся для обновления токена...
             this.reconnect();
             return;
         }
 
-        console.log('✅ Попытка подключения WebSocket...');
-        
         const fullToken = token.startsWith('Bearer ') ? token : `Bearer ${token}`;
         
         // Динамический URL на основе текущего хоста
@@ -215,17 +188,14 @@ class WebSocketClient {
         
         // Специальная обработка для ngrok
         if (window.location.host.includes('ngrok') || window.location.host.includes('ngrok-free.app')) {
-            console.log('🔗 Обнаружен ngrok, переходим на HTTP polling вместо WebSocket');
+            // Обнаружен ngrok, переходим на HTTP polling вместо WebSocket
             this.initHttpPolling(token);
             return;
         }
         
-        console.log('Подключаемся к WebSocket:', wsUrl);
-        
         this.ws = new WebSocket(wsUrl);
             
         this.ws.onopen = () => {
-            console.log('✅ WebSocket connected successfully');
             this.isConnected = true;
             this.reconnectAttempts = 0;
             this.reconnectDelay = 1000;
@@ -246,7 +216,6 @@ class WebSocketClient {
             
             // Запрашиваем статус автоматизации если мы на странице автоматизации
             if (window.location.pathname === '/automation') {
-                console.log('🔗 На странице автоматизации, запрашиваем статус...');
                 this.send({
                     type: 'request_automation_status'
                 });
@@ -263,37 +232,28 @@ class WebSocketClient {
             const data = JSON.parse(event.data);
             this.handleMessage(data);
         } catch (error) {
-            console.error('Error parsing WebSocket message:', error);
+            // Error parsing WebSocket message:
         }
         };
         
         this.ws.onerror = (error) => {
-            console.error('❌ WebSocket error:', error);
-            console.error('WebSocket URL:', wsUrl);
-            console.error('WebSocket readyState:', this.ws?.readyState);
-            
-            // Специальная обработка для ngrok
-            if (window.location.host.includes('ngrok') || window.location.host.includes('ngrok-free.app')) {
-                console.error('🔗 Ошибка WebSocket через ngrok. Убедитесь что ngrok запущен с флагом --host-header=rewrite');
-                console.error('Пример: ngrok http 8000 --host-header=rewrite');
-            }
+            // WebSocket error:
         };
         
         this.ws.onclose = (event) => {
-            console.log('🔌 WebSocket disconnected:', event.code, event.reason);
             this.isConnected = false;
             setRealtimeIndicator(false);
             
             // Логируем причину отключения
             if (event.code === 1006) {
-                console.error('❌ WebSocket закрыт аномально (код 1006). Возможные причины:');
-                console.error('- Проблемы с сетью');
-                console.error('- Сервер недоступен');
-                console.error('- Проблемы с ngrok (если используется)');
+                // WebSocket закрыт аномально (код 1006). Возможные причины:
+                // - Проблемы с сетью
+                // - Сервер недоступен
+                // - Проблемы с ngrok (если используется)
             } else if (event.code === 1011) {
-                console.error('❌ WebSocket закрыт сервером из-за ошибки (код 1011)');
+                // WebSocket закрыт сервером из-за ошибки (код 1011)
             } else if (event.code === 1000) {
-                console.log('✅ WebSocket закрыт нормально');
+                // WebSocket закрыт нормально
             }
             
             if (event.code !== 1000 && this.reconnectAttempts < this.maxReconnectAttempts) {
@@ -311,14 +271,12 @@ class WebSocketClient {
         this.reconnectAttempts++;
         const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
         
-        console.log(`Переподключение через ${delay}ms (попытка ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
-        
         setTimeout(() => {
             const token = getAuthToken(); // Получаем свежий токен
             if (token) {
                 this.connect(token);
             } else {
-                console.error("Не удалось получить токен для переподключения.");
+                // Не удалось получить токен для переподключения.
             }
         }, delay);
     }
@@ -341,7 +299,6 @@ class WebSocketClient {
             this.ws.send(JSON.stringify(data));
         } else if (this.pollingInterval) {
             // Для HTTP polling игнорируем send, так как мы используем обычные HTTP запросы
-            console.log('📡 HTTP polling режим: игнорируем WebSocket send:', data);
         }
     }
     
@@ -353,18 +310,15 @@ class WebSocketClient {
         } else if (type === 'initial_stats') {
             this.handleInitialStats(eventData);
         } else if (type === 'connection_established') {
-            console.log('🔗 WebSocket connection established:', eventData);
+            // WebSocket connection established:
         } else if (type === 'pong') {
             // Pong для проверки соединения
-            console.log('🏓 Pong received');
         } else {
-            console.log('Unknown message type:', type);
+            // Unknown message type:
         }
     }
     
     handleEvent(eventType, data) {
-        console.log(`📡 Event received: ${eventType}`, data);
-        
         // Эмитим событие для внешних обработчиков
         this.emit(eventType, data);
         
@@ -441,13 +395,11 @@ class WebSocketClient {
                 break;
                 
             default:
-                console.log(`Unhandled event type: ${eventType}`);
+                // Unhandled event type:
         }
     }
     
     handleInitialStats(data) {
-        console.log('📊 Initial stats received:', data);
-        
         // Обновляем статистику дашборда
         if (data.duplicate_stats) {
             this.updateDashboardStats(data.duplicate_stats);
@@ -512,7 +464,7 @@ class WebSocketClient {
     }
     
     handleAutomationCompleted(data) {
-        console.log('✅ Пайплайн автоматизации завершен успешно');
+        // Пайплайн автоматизации завершен успешно
         if (window.automationManager) {
             window.automationManager.showNotification('✅ Пайплайн завершен успешно!', 'success');
             window.automationManager.loadStatus();
@@ -520,7 +472,7 @@ class WebSocketClient {
     }
     
     handleAutomationError(data) {
-        console.log('❌ Пайплайн автоматизации завершен с ошибками:', data.error);
+        // Пайплайн автоматизации завершен с ошибками:
         if (window.automationManager) {
             window.automationManager.showNotification('❌ Пайплайн завершен с ошибками', 'error');
             window.automationManager.loadStatus();
@@ -594,7 +546,7 @@ class WebSocketClient {
     
     handleScrapingStarted(data) {
         const { job_id, config } = data;
-        console.log(`🚀 Парсинг запущен: ${config} (${job_id})`);
+        // Парсинг запущен: ${config} (${job_id})
         
         // Добавляем новую задачу в список если он есть
         this.addScrapingJob({
@@ -609,7 +561,7 @@ class WebSocketClient {
         
         // Проверяем не показывается ли уже уведомление для этой задачи
         if (window.activeNotifications && window.activeNotifications.has(notificationKey)) {
-            console.log('Дублирующее уведомление о запуске парсинга заблокировано:', config);
+            // Дублирующее уведомление о запуске парсинга заблокировано:
             return;
         }
         
@@ -630,7 +582,7 @@ class WebSocketClient {
     
     handleScrapingCompleted(data) {
         const { job_id, config, stats } = data;
-        console.log(`✅ Парсинг завершен: ${config} (${job_id})`);
+        // Парсинг завершен: ${config} (${job_id})
         
         // Обновляем статус задачи
         this.updateScrapingJobStatus(job_id, 'завершено');
@@ -640,7 +592,7 @@ class WebSocketClient {
         
         // Проверяем не показывается ли уже уведомление для этой задачи
         if (window.activeNotifications && window.activeNotifications.has(notificationKey)) {
-            console.log('Дублирующее уведомление о завершении парсинга заблокировано:', config);
+            // Дублирующее уведомление о завершении парсинга заблокировано:
             return;
         }
         
@@ -661,7 +613,7 @@ class WebSocketClient {
     
     handleScrapingError(data) {
         const { job_id, config, error } = data;
-        console.log(`❌ Ошибка парсинга: ${config} (${job_id}) - ${error}`);
+        // Ошибка парсинга: ${config} (${job_id}) - ${error}
         
         // Определяем тип ошибки и соответствующий статус
         let status = 'ошибка';
@@ -686,7 +638,7 @@ class WebSocketClient {
         
         // Проверяем не показывается ли уже уведомление для этой задачи
         if (window.activeNotifications && window.activeNotifications.has(notificationKey)) {
-            console.log('Дублирующее уведомление об ошибке парсинга заблокировано:', config);
+            // Дублирующее уведомление об ошибке парсинга заблокировано:
             return;
         }
         
@@ -771,7 +723,7 @@ class WebSocketClient {
     }
     
     handleDuplicateCompleted(data) {
-        console.log('✅ Обработка дубликатов завершена:', data);
+        // Обработка дубликатов завершена:
         
         this.showNotification('success', {
             title: 'Обработка завершена',
@@ -800,7 +752,7 @@ class WebSocketClient {
     
     handleNewAd(data) {
         const { ad_id, title, source } = data;
-        console.log(`🏠 Новое объявление: ${title} (${source})`);
+        // Новое объявление: ${title} (${source})
         
         // Обновляем счетчики
         this.updateStatCard('total-ads', 
@@ -810,7 +762,7 @@ class WebSocketClient {
     
     handleDuplicateDetected(data) {
         const { ad_id, unique_ad_id, similarity } = data;
-        console.log(`🔍 Дубликат обнаружен: ${ad_id} -> ${unique_ad_id} (${similarity.toFixed(2)})`);
+        // Дубликат обнаружен: ${ad_id} -> ${unique_ad_id} (${similarity.toFixed(2)})
         
         // Обновляем счетчики
         this.updateStatCard('duplicates', 
@@ -820,7 +772,7 @@ class WebSocketClient {
     
     handleRealtorDetected(data) {
         const { phone, ads_count } = data;
-        console.log(`👤 Риэлтор обнаружен: ${phone} (${ads_count} объявлений)`);
+        // Риэлтор обнаружен: ${phone} (${ads_count} объявлений)
         
         // Обновляем счетчики
         this.updateStatCard('realtor-ads', 
@@ -838,7 +790,6 @@ class WebSocketClient {
             const currentPath = window.location.pathname;
             // Показываем уведомления о дубликатах только на страницах дашборда и автоматизации
             if (!['/dashboard', '/automation', '/'].includes(currentPath)) {
-                console.log('Уведомление о дубликатах скрыто на странице:', currentPath);
                 return;
             }
         }
@@ -846,7 +797,6 @@ class WebSocketClient {
         // Дебаунсинг для предотвращения спама уведомлений
         const debounceKey = `${type}:${fullMessage}`;
         if (this.notificationDebounce && this.notificationDebounce[debounceKey]) {
-            console.log('Уведомление заблокировано дебаунсингом:', fullMessage);
             return;
         }
         
@@ -871,7 +821,6 @@ class WebSocketClient {
             
             // Проверяем не показывается ли уже такое же уведомление
             if (window.activeNotifications.has(notificationKey)) {
-                console.log('Дублирующее уведомление заблокировано (websocket.js):', fullMessage);
                 return; // Не показываем дублирующее уведомление
             }
             
@@ -971,30 +920,19 @@ class WebSocketClient {
 
 // Функция для управления индикатором real-time соединения
 function setRealtimeIndicator(connected) {
-    console.log(`🔴🟢 setRealtimeIndicator вызван с: ${connected ? 'подключен' : 'отключен'}`);
     const indicator = document.getElementById('realtime-indicator');
-    console.log(`🔴🟢 Индикатор элемент:`, indicator ? 'найден' : 'НЕ НАЙДЕН');
     
     if (indicator) {
         if (connected) {
             indicator.classList.remove('disconnected');
             indicator.classList.add('connected');
             indicator.title = 'HTTP polling активен (ngrok режим)';
-            console.log('🟢 Индикатор установлен в подключенное состояние');
         } else {
             indicator.classList.remove('connected');
             indicator.classList.add('disconnected');
             indicator.title = 'Нет соединения';
-            console.log('🔴 Индикатор установлен в отключенное состояние');
         }
-        
-        // Логируем текущие классы
-        console.log('🔴🟢 Текущие классы индикатора:', indicator.className);
     } else {
-        console.error('❌ Элемент realtime-indicator не найден в DOM!');
-        
-        // Попробуем найти все элементы с похожими ID
-        const allElements = document.querySelectorAll('[id*="indicator"]');
-        console.log('🔍 Найдены элементы с "indicator" в ID:', allElements);
+        // Элемент realtime-indicator не найден в DOM!
     }
 } 

@@ -1,21 +1,17 @@
 class AutomationManager {
     constructor() {
-        console.log('🔧 Создание AutomationManager...');
         this.currentStatus = null;
         this.refreshInterval = null;
         
         this.init();
-        console.log('✅ AutomationManager инициализирован');
     }
     
     init() {
-        console.log('🔧 Инициализация AutomationManager...');
         this.bindEvents();
         this.startAutoRefresh();
         this.loadStatus();
         this.loadScrapingSources();
         this.setupWebSocketHandlers();
-        console.log('✅ Инициализация AutomationManager завершена');
     }
     
     bindEvents() {
@@ -44,7 +40,6 @@ class AutomationManager {
             }
         } catch (error) {
             this.showNotification('❌ Ошибка запуска пайплайна', 'error');
-            console.error('Error starting pipeline:', error);
         }
     }
     
@@ -61,7 +56,6 @@ class AutomationManager {
             }
         } catch (error) {
             this.showNotification('❌ Ошибка остановки пайплайна', 'error');
-            console.error('Error stopping pipeline:', error);
         }
     }
     
@@ -73,7 +67,6 @@ class AutomationManager {
             this.currentStatus = status;
             this.updateUI(status);
         } catch (error) {
-            console.error('Error loading status:', error);
             this.showNotification('❌ Ошибка загрузки статуса', 'error');
         }
     }
@@ -82,7 +75,6 @@ class AutomationManager {
         try {
             // Проверяем что status не undefined
             if (!status) {
-                console.warn('❌ Получен undefined status в updateUI');
                 return;
             }
             
@@ -120,7 +112,7 @@ class AutomationManager {
             
             // Детали этапов теперь отображаются в разделе "Статус пайплайна"
         } catch (error) {
-            console.error('❌ Ошибка обновления UI:', error);
+            this.showNotification('❌ Ошибка обновления UI', 'error');
         }
     }
     
@@ -175,7 +167,7 @@ class AutomationManager {
                 }
             }
         } catch (error) {
-            console.error('❌ Ошибка обновления кнопок управления:', error);
+            this.showNotification('❌ Ошибка обновления кнопок управления', 'error');
         }
     }
     
@@ -183,7 +175,6 @@ class AutomationManager {
         try {
             // Проверяем что status не undefined
             if (!status) {
-                console.warn('❌ Получен undefined status в updateConfigInfo');
                 return;
             }
             
@@ -235,7 +226,7 @@ class AutomationManager {
                 });
             }
         } catch (error) {
-            console.error('❌ Ошибка обновления конфигурации:', error);
+            this.showNotification('❌ Ошибка обновления конфигурации', 'error');
         }
     }
     
@@ -243,7 +234,6 @@ class AutomationManager {
         try {
             // Проверяем что status не undefined
             if (!status) {
-                console.warn('❌ Получен undefined status в updateTimeInfo');
                 return;
             }
             
@@ -282,7 +272,7 @@ class AutomationManager {
                 }
             }
         } catch (error) {
-            console.error('❌ Ошибка обновления временной информации:', error);
+            this.showNotification('❌ Ошибка обновления временной информации', 'error');
         }
     }
     
@@ -335,7 +325,7 @@ class AutomationManager {
                 currentStageElement.style.display = 'none';
             }
         } catch (error) {
-            console.error('❌ Ошибка обновления текущего этапа:', error);
+            this.showNotification('❌ Ошибка обновления текущего этапа', 'error');
         }
     }
     
@@ -344,7 +334,7 @@ class AutomationManager {
             // Убираем обновление статистики новых объявлений
             // Блок статистики удален из шаблона
         } catch (error) {
-            console.error('❌ Ошибка обновления статистики пайплайна:', error);
+            this.showNotification('❌ Ошибка обновления статистики пайплайна', 'error');
         }
     }
     
@@ -353,7 +343,7 @@ class AutomationManager {
             // Убираем обновление статистики новых объявлений
             // Блок статистики удален из шаблона
         } catch (error) {
-            console.error('❌ Ошибка обновления простой статистики:', error);
+            this.showNotification('❌ Ошибка обновления простой статистики', 'error');
         }
     }
     
@@ -393,7 +383,6 @@ class AutomationManager {
             
             // Проверяем не показывается ли уже такое же уведомление
             if (window.activeNotifications.has(notificationKey)) {
-                console.log('Дублирующее уведомление заблокировано (automation.js):', message);
                 return; // Не показываем дублирующее уведомление
             }
             
@@ -453,7 +442,6 @@ class AutomationManager {
             const data = await response.json();
             this.updateScrapingSources(data.jobs || [], data.sources || []);
         } catch (error) {
-            console.error('❌ Ошибка загрузки источников парсинга:', error);
             // Показываем ошибку пользователю
             const container = document.getElementById('scraping-sources');
             if (container) {
@@ -473,7 +461,6 @@ class AutomationManager {
         try {
             const container = document.getElementById('scraping-sources');
             if (!container) {
-                console.error('❌ Элемент scraping-sources не найден');
                 return;
             }
             
@@ -506,7 +493,7 @@ class AutomationManager {
                 container.appendChild(sourceCard);
             });
         } catch (error) {
-            console.error('❌ Ошибка обновления источников парсинга:', error);
+            this.showNotification('❌ Ошибка обновления источников парсинга', 'error');
         }
     }
     
@@ -610,7 +597,7 @@ class AutomationManager {
                 
             return card;
         } catch (error) {
-            console.error('❌ Ошибка создания карточки источника:', error);
+            this.showNotification('❌ Ошибка создания карточки источника', 'error');
             // Возвращаем простую карточку с ошибкой
             const errorCard = document.createElement('div');
             errorCard.className = 'col-md-6 col-lg-4 mb-3';
@@ -637,14 +624,12 @@ class AutomationManager {
             const result = await response.json();
             
             if (response.ok) {
-                console.log(`🚀 Парсинг ${source} запущен через API`);
                 setTimeout(() => this.loadScrapingSources(), 1000);
             } else {
                 this.showNotification(result.detail || 'Ошибка запуска', 'error');
             }
         } catch (error) {
             this.showNotification('❌ Ошибка запуска парсинга', 'error');
-            console.error('Error starting source:', error);
         }
     }
     
@@ -662,7 +647,6 @@ class AutomationManager {
             }
         } catch (error) {
             this.showNotification('❌ Ошибка остановки парсинга', 'error');
-            console.error('Error stopping source:', error);
         }
     }
     
@@ -682,7 +666,6 @@ class AutomationManager {
             }
         } catch (error) {
             this.showNotification('❌ Ошибка запуска всех источников', 'error');
-            console.error('Error starting all sources:', error);
         }
     }
     
@@ -700,8 +683,7 @@ class AutomationManager {
             }
         } catch (error) {
             this.showNotification('❌ Ошибка остановки всех источников', 'error');
-            console.error('Error stopping all sources:', error);
-            }
+        }
     }
     
     async showSourceLogs(source) {
@@ -724,7 +706,7 @@ class AutomationManager {
                 return;
             }
             
-            console.log(`📋 Показываем логи для ${source} (job_id: ${job.id}, статус: ${job.status})`);
+
             
             const response = await fetch(`/api/scraping/log/${job.id}`);
             const logs = await response.json();
@@ -764,7 +746,6 @@ class AutomationManager {
             modal.show();
         } catch (error) {
             this.showNotification('❌ Ошибка загрузки логов', 'error');
-            console.error('Error loading logs:', error);
         }
     }
     
@@ -820,13 +801,11 @@ class AutomationManager {
 
             window.realtimeClient.on('scraping_started', (data) => {
                     // Убираем дублирующее уведомление - websocket.js уже покажет его
-                    console.log('🚀 Парсинг запущен (WebSocket event)');
                 this.loadScrapingSources();
             });
 
             window.realtimeClient.on('scraping_completed', (data) => {
                     // Убираем дублирующее уведомление - websocket.js уже покажет его
-                    console.log('✅ Парсинг завершен (WebSocket event)');
                 this.loadScrapingSources();
             });
 
@@ -834,7 +813,7 @@ class AutomationManager {
                 this.loadScrapingSources();
             });
             } else {
-                console.warn('⚠️ WebSocket client не найден, используем только polling');
+                // WebSocket client не найден, используем только polling
             }
         }, 100);
     }

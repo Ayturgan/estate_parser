@@ -2,14 +2,50 @@ import asyncio
 import aiohttp
 from PIL import Image
 import io
-from imagehash import average_hash
+import imagehash
 import logging
-from typing import Optional
+from typing import Optional, Dict
 from sqlalchemy.orm import Session
 from app.database import db_models
 import time
+import numpy as np
+
+# Импорты для CLIP модели
+try:
+    from transformers import CLIPProcessor, CLIPModel
+    import torch
+    CLIP_AVAILABLE = True
+except ImportError:
+    CLIP_AVAILABLE = False
+    logging.warning("CLIP модель недоступна. Установите transformers и torch для полной функциональности.")
 
 logger = logging.getLogger(__name__)
+
+# Глобальные переменные для кэширования CLIP модели
+_clip_model_photo = None
+_clip_processor_photo = None
+_clip_loaded_photo = False
+
+def get_clip_model_photo():
+    """Возвращает кэшированную CLIP модель для обработки фотографий"""
+    global _clip_model_photo, _clip_processor_photo, _clip_loaded_photo
+    
+    if not CLIP_AVAILABLE:
+        return None, None
+    
+    if not _clip_loaded_photo:
+        try:
+            logger.info("Загружаем CLIP модель для обработки фотографий...")
+            _clip_model_photo = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
+            _clip_processor_photo = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
+            _clip_loaded_photo = True
+            logger.info("CLIP модель загружена успешно")
+        except Exception as e:
+            logger.warning(f"Не удалось загрузить CLIP модель: {e}")
+            _clip_model_photo = None
+            _clip_processor_photo = None
+    
+    return _clip_model_photo, _clip_processor_photo
 
 class PhotoService:
     def __init__(self, max_concurrent: int = 10, timeout: int = 30, max_retries: int = 3):
@@ -17,6 +53,10 @@ class PhotoService:
         self.timeout = timeout
         self.max_retries = max_retries
         self.semaphore = asyncio.Semaphore(max_concurrent)
+        
+        # Инициализация CLIP модели (используем кэшированную)
+        # self.clip_model, self.clip_processor = get_clip_model_photo()  # Отключаем CLIP
+        self.clip_model, self.clip_processor = None, None
     
     async def process_ad_photos(self, db: Session, ad: db_models.DBAd):
         """Асинхронно и параллельно обрабатывает все фотографии объявления"""
@@ -25,7 +65,7 @@ class PhotoService:
             return
         
         total_photos = len(ad.photos)
-        photos_without_hash = [p for p in ad.photos if not p.hash]
+        photos_without_hash = [p for p in ad.photos if not p.perceptual_hashes]
         
         if not photos_without_hash:
             logger.info(f"All {total_photos} photos for ad {ad.id} already have hashes")
@@ -44,21 +84,23 @@ class PhotoService:
         not_found_photos = 0
         
         for photo, result in zip(photos_without_hash, results):
-            if isinstance(result, str) and result:
-                if result in ["404_NOT_FOUND", "403_FORBIDDEN"]:
-                    # Специальные случаи - помечаем как обработанные
-                    photo.hash = result
-                    failed_photos += 1
-                    if result == "404_NOT_FOUND":
-                        not_found_photos += 1
-                        logger.info(f"Marked 404 photo as processed: {photo.url}")
-                    else:
-                        logger.info(f"Marked 403 photo as processed: {photo.url}")
+            if isinstance(result, dict) and result:
+                # Успешный результат с хешами и эмбеддингами
+                if 'perceptual_hashes' in result:
+                    photo.perceptual_hashes = result['perceptual_hashes']
+                if 'clip_embedding' in result and result['clip_embedding']:
+                    photo.clip_embedding = result['clip_embedding']
+                successful_hashes += 1
+                logger.debug(f"Successfully computed hashes and embeddings for photo {photo.url}")
+            elif isinstance(result, str) and result in ["404_NOT_FOUND", "403_FORBIDDEN"]:
+                # Специальные случаи - помечаем как обработанные
+                photo.perceptual_hashes = result
+                failed_photos += 1
+                if result == "404_NOT_FOUND":
+                    not_found_photos += 1
+                    logger.info(f"Marked 404 photo as processed: {photo.url}")
                 else:
-                    # Успешный хеш
-                    photo.hash = result
-                    successful_hashes += 1
-                    logger.debug(f"Successfully computed hash for photo {photo.url}: {result[:10]}...")
+                    logger.info(f"Marked 403 photo as processed: {photo.url}")
             else:
                 # Остальные ошибки
                 failed_photos += 1
@@ -73,7 +115,7 @@ class PhotoService:
             logger.error(f"Error committing photo hashes for ad {ad.id}: {e}")
             db.rollback()
     
-    async def _process_single_photo_with_retry(self, photo: db_models.DBPhoto) -> Optional[str]:
+    async def _process_single_photo_with_retry(self, photo: db_models.DBPhoto) -> Optional[Dict[str, str]]:
         """Обрабатывает одну фотографию с повторными попытками"""
         for attempt in range(self.max_retries):
             try:
@@ -98,7 +140,7 @@ class PhotoService:
                     logger.error(f"All {self.max_retries} attempts failed for photo {photo.url}")
                     return None
     
-    async def _process_single_photo(self, photo: db_models.DBPhoto) -> str:
+    async def _process_single_photo(self, photo: db_models.DBPhoto) -> Dict[str, str]:
         """Обрабатывает одну фотографию"""
         async with self.semaphore:
             start_time = time.time()
@@ -123,14 +165,14 @@ class PhotoService:
                             if not content or len(content) < 100:
                                 raise Exception("Image too small or empty")
                             loop = asyncio.get_running_loop()
-                            photo_hash = await loop.run_in_executor(
+                            photo_data = await loop.run_in_executor(
                                 None,
                                 self._compute_hash_sync,
                                 content
                             )
                             processing_time = time.time() - start_time
-                            logger.info(f"Computed hash for photo {photo.url} in {processing_time:.2f}s: {photo_hash[:10]}...")
-                            return photo_hash
+                            logger.info(f"Computed hashes and embeddings for photo {photo.url} in {processing_time:.2f}s")
+                            return photo_data
                         else:
                             raise Exception(f"HTTP {response.status}: {response.reason}")
             except Exception as e:
@@ -138,20 +180,43 @@ class PhotoService:
                 logger.error(f"Error processing photo {photo.url} after {processing_time:.2f}s: {e}")
                 raise e
     
-    def _compute_hash_sync(self, content: bytes) -> str:
+    def _compute_hash_sync(self, content: bytes) -> Dict[str, any]:
         img = Image.open(io.BytesIO(content))
         if img.mode != 'RGB':
             img = img.convert('RGB')
-        return str(average_hash(img))
+        
+        # Вычисляем различные перцептивные хеши
+        hashes = {
+            'pHash': str(imagehash.phash(img)),
+            'dHash': str(imagehash.dhash(img)),
+            'aHash': str(imagehash.average_hash(img)),
+            'wHash': str(imagehash.whash(img))
+        }
+        
+        # Вычисляем CLIP эмбеддинг если модель доступна (отключено)
+        clip_embedding = None
+        # if self.clip_model and self.clip_processor:
+        #     try:
+        #         inputs = self.clip_processor(images=img, return_tensors="pt")
+        #         with torch.no_grad():
+        #         image_features = self.clip_model.get_image_features(**inputs)
+        #         clip_embedding = image_features.cpu().numpy()[0].tolist()
+        #     except Exception as e:
+        #         logger.warning(f"Ошибка вычисления CLIP эмбеддинга: {e}")
+        
+        return {
+            'perceptual_hashes': hashes,
+            'clip_embedding': clip_embedding
+        }
     
-    async def process_all_unprocessed_photos(self, db: Session, batch_size: int = 50):
+    async def process_all_unprocessed_photos(self, db: Session, batch_size: int = 500):
         """Обрабатывает все фотографии без хешей в базе данных"""
         logger.info("Starting batch processing of all unprocessed photos...")
         
         total_processed = 0
         while True:
             unprocessed_photos = db.query(db_models.DBPhoto).filter(
-                db_models.DBPhoto.hash.is_(None)
+                db_models.DBPhoto.perceptual_hashes.is_(None)
             ).limit(batch_size).all()
             
             if not unprocessed_photos:
@@ -187,7 +252,7 @@ class PhotoService:
             try:
                 total_photos = db.query(db_models.DBPhoto).count()
                 processed_photos = db.query(db_models.DBPhoto).filter(
-                    db_models.DBPhoto.hash.isnot(None)
+                    db_models.DBPhoto.perceptual_hashes.isnot(None)
                 ).count()
                 unprocessed_photos = total_photos - processed_photos
                 processing_percentage = (processed_photos / total_photos * 100) if total_photos > 0 else 0

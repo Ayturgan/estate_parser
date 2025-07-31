@@ -842,6 +842,14 @@ async def ad_detail_page(
             realtor = db.query(db_models.DBRealtor).filter(
                 db_models.DBRealtor.id == unique_ad.realtor_id
             ).first()
+            
+            # Вычисляем актуальное количество объявлений риэлтора
+            if realtor:
+                realtor_ads_count = db.query(db_models.DBUniqueAd).filter(
+                    db_models.DBUniqueAd.realtor_id == realtor.id
+                ).count()
+                # Временно обновляем поле для отображения
+                realtor.total_ads_count = realtor_ads_count
         
         return templates.TemplateResponse("ad_detail.html", {
             "request": request,

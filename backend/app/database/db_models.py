@@ -121,7 +121,8 @@ class DBPhoto(Base):
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     url = Column(String, nullable=False, index=True)
-    hash = Column(String, nullable=True, index=True)
+    perceptual_hashes = Column(JSONB, nullable=True, index=True)
+    clip_embedding = Column(JSONB, nullable=True)  # Убираем индекс - слишком большой
     ad_id = Column(Integer, ForeignKey('ads.id', ondelete='CASCADE'), index=True)
     ad = relationship("DBAd", back_populates="photos")
 
@@ -188,7 +189,8 @@ class DBUniquePhoto(Base):
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     url = Column(String, nullable=False, index=True)
-    hash = Column(String, nullable=True, index=True)
+    perceptual_hashes = Column(JSONB, nullable=True, index=True)
+    clip_embedding = Column(JSONB, nullable=True)  # Убираем индекс - слишком большой
     unique_ad_id = Column(Integer, ForeignKey('unique_ads.id', ondelete='CASCADE'), index=True)
     unique_ad = relationship("DBUniqueAd", back_populates="photos")
 

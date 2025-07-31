@@ -6,27 +6,16 @@ let realTimeUpdates = {};
 
 // Функции для работы с токенами авторизации
 function setAuthToken(token) {
-    console.log('🔑 setAuthToken вызван с:', token ? '✅ Токен получен' : '❌ Токен пустой');
-    console.log('🔑 Домен:', window.location.host);
-    console.log('🔑 Протокол:', window.location.protocol);
-    
     localStorage.setItem('auth_token', token);
-    console.log('🔑 Токен сохранен в localStorage');
-    
     // Также устанавливаем в cookie для совместимости
     document.cookie = `ws_token=${token}; path=/; samesite=strict`;
-    console.log('🔑 Токен сохранен в cookie');
-    
     // Отправляем событие для WebSocket клиента с токеном
     window.dispatchEvent(new CustomEvent('auth_token_received', { detail: { token } }));
-    console.log('🔑 Событие auth_token_received отправлено');
 }
 
 function getAuthToken() {
     // Единственный источник правды - localStorage
     const token = localStorage.getItem('auth_token');
-    console.log('🔑 getAuthToken вызван:', token ? '✅ Токен найден' : '❌ Токен НЕ найден');
-    console.log('🔑 localStorage auth_token:', token);
     return token;
 }
 
@@ -119,12 +108,10 @@ async function startScraping(source) {
         
         if (result.success) {
             // Убираем уведомление - WebSocket уже покажет его
-            console.log(`Парсинг ${source} запущен через API`);
         } else {
             showNotification('error', result.message || 'Ошибка запуска парсинга');
         }
     } catch (error) {
-        console.error('Error starting scraping:', error);
         showNotification('error', 'Ошибка запуска парсинга');
     }
 }
@@ -142,7 +129,6 @@ async function stopScraping(jobId) {
             showNotification('error', 'Ошибка остановки парсинга');
         }
     } catch (error) {
-        console.error('Error stopping scraping:', error);
         showNotification('error', 'Ошибка остановки парсинга');
     }
 }
@@ -232,7 +218,6 @@ async function startProcessing(type) {
             showNotification('error', result.message || 'Ошибка запуска обработки');
         }
     } catch (error) {
-        console.error('Error starting processing:', error);
         showNotification('error', 'Ошибка запуска обработки');
     }
 }
@@ -280,7 +265,6 @@ async function showJobLogs(jobId) {
             showNotification('error', 'Ошибка загрузки логов');
         }
     } catch (error) {
-        console.error('Error loading logs:', error);
         showNotification('error', 'Ошибка загрузки логов');
     }
 }
@@ -434,7 +418,6 @@ function showAdModal(adId) {
         modal.show();
     })
     .catch(error => {
-        console.error('Error loading ad:', error);
         showNotification('error', 'Ошибка загрузки объявления');
     });
 }
@@ -543,12 +526,6 @@ document.addEventListener('DOMContentLoaded', function() {
     // Инициализируем реестр уведомлений
     window.activeNotifications = window.activeNotifications || new Set();
     window.activeNotifications.clear();
-    console.log('Реестр уведомлений очищен при загрузке страницы');
-    
-    // Показываем серверные сообщения через единую систему уведомлений
-    setTimeout(() => {
-        showServerMessages();
-    }, 100); // Небольшая задержка для гарантии загрузки всех скриптов
 });
 
 function showNotification(type, message) {
@@ -557,7 +534,6 @@ function showNotification(type, message) {
     
     // Проверяем не показывается ли уже такое же уведомление
     if (window.activeNotifications.has(notificationKey)) {
-        console.log('Дублирующее уведомление заблокировано:', message);
         return; // Не показываем дублирующее уведомление
     }
     
@@ -622,7 +598,6 @@ function showNotification(type, message) {
 // Функция для показа серверных сообщений через единую систему
 function showServerMessages() {
     const serverMessages = document.querySelectorAll('.alert:not(.notification-alert)');
-    console.log(`Найдено ${serverMessages.length} серверных сообщений для преобразования`);
     
     serverMessages.forEach((alert, index) => {
         const message = alert.textContent.trim();
@@ -632,8 +607,6 @@ function showServerMessages() {
         if (alertClass.includes('alert-danger')) type = 'error';
         else if (alertClass.includes('alert-success')) type = 'success';
         else if (alertClass.includes('alert-warning')) type = 'warning';
-        
-        console.log(`Преобразуем серверное сообщение ${index + 1}: ${type} - ${message}`);
         
         // Показываем через единую систему и удаляем оригинальное уведомление
         showNotification(type, message);
@@ -658,24 +631,11 @@ window.showServerMessages = showServerMessages;
 
 // Функция для отладки - проверка состояния реестра уведомлений
 window.debugNotifications = function() {
-    console.log('=== ДИАГНОСТИКА УВЕДОМЛЕНИЙ ===');
-    console.log('Активные уведомления в реестре:', Array.from(window.activeNotifications));
-    console.log('Уведомления в DOM:', document.querySelectorAll('.notification-alert').length);
-    console.log('Серверные сообщения:', document.querySelectorAll('.alert:not(.notification-alert)').length);
-    console.log('Всего alert элементов:', document.querySelectorAll('.alert').length);
-    
-    // Проверяем на дубликаты
-    const allMessages = Array.from(window.activeNotifications);
-    const duplicates = allMessages.filter((item, index) => allMessages.indexOf(item) !== index);
-    if (duplicates.length > 0) {
-        console.warn('⚠️ Найдены дубликаты в реестре:', duplicates);
-    }
-    
     return {
         active: Array.from(window.activeNotifications),
         inDOM: document.querySelectorAll('.notification-alert').length,
         serverMessages: document.querySelectorAll('.alert:not(.notification-alert)').length,
-        duplicates: duplicates
+        duplicates: []
     };
 };
 

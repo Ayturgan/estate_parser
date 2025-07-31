@@ -31,7 +31,6 @@ function showNotification(type, message) {
     
     // Проверяем не показывается ли уже такое же уведомление
     if (window.activeNotifications.has(notificationKey)) {
-        console.log('Дублирующее уведомление заблокировано (utils.js):', message);
         return; // Не показываем дублирующее уведомление
     }
     
@@ -118,7 +117,6 @@ function displayAds(data) {
     const totalInfo = document.getElementById('total-info');
     
     if (!container) {
-        console.error('Контейнер ads-container не найден');
         return;
     }
     
@@ -287,43 +285,33 @@ function clearFilters() {
 
 // Модальные окна для объявлений
 function showAdModal(adId) {
-    console.log('Загружаем объявление ID:', adId);
-    
     fetch(`/api/ads/unique/${adId}`)
         .then(response => {
-            console.log('Ответ сервера:', response.status);
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}`);
             }
             return response.json();
         })
         .then(data => {
-            console.log('Данные объявления:', data);
             const modal = new bootstrap.Modal(document.getElementById('adModal'));
             populateAdModal(data);
             modal.show();
         })
         .catch(error => {
-            console.error('Ошибка загрузки объявления:', error);
             showNotification('error', `Ошибка загрузки объявления: ${error.message}`);
         });
 }
 
 function populateAdModal(data) {
-    console.log('Полученные данные:', data);
-    
     // Получаем базовое объявление из API ответа
     const ad = data.base_ad || data;
-    console.log('Обрабатываемое объявление:', ad);
     
     // Заголовок
     document.getElementById('modal-ad-title').textContent = ad.title || 'Без названия';
-    console.log('Заголовок:', ad.title);
     
     // Цена с правильной валютой
     let priceText = 'Цена не указана';
     if (ad.price) {
-        console.log('Цена и валюта:', ad.price, ad.currency);
         if (ad.currency === 'USD') {
             priceText = `$${ad.price.toLocaleString()}`;
         } else if (ad.currency === 'SOM') {
@@ -334,7 +322,6 @@ function populateAdModal(data) {
             priceText = `${ad.price.toLocaleString()} ${ad.currency || ''}`;
         }
     }
-    console.log('Итоговая цена:', priceText);
     document.getElementById('modal-ad-price').textContent = priceText;
     
     // Описание
@@ -438,8 +425,6 @@ function populateAdModal(data) {
     const duplicatesCount = data.total_duplicates || 0;
     const showDuplicatesBtn = document.getElementById('show-duplicates-btn');
     
-    console.log('Количество дубликатов:', duplicatesCount);
-    
     duplicatesInfo.innerHTML = `
         <span class="badge bg-${duplicatesCount > 0 ? 'warning' : 'success'}">
             ${duplicatesCount} дубликатов
@@ -449,7 +434,6 @@ function populateAdModal(data) {
     
     // Показываем кнопку только если есть дубликаты
     if (duplicatesCount > 0) {
-        console.log('Показываем кнопку дубликатов');
         showDuplicatesBtn.style.display = 'block';
         
         // Удаляем старые обработчики и добавляем новый
@@ -457,7 +441,6 @@ function populateAdModal(data) {
         const newBtn = document.getElementById('show-duplicates-btn');
         newBtn.onclick = () => showDuplicatesModal(data.unique_ad_id);
     } else {
-        console.log('Скрываем кнопку дубликатов');
         showDuplicatesBtn.style.display = 'none';
     }
     
@@ -465,25 +448,13 @@ function populateAdModal(data) {
     const sourceLinkContainer = document.getElementById('source-link-container');
     const sourceLinkBtn = document.getElementById('source-link-btn');
     
-    console.log('=== ОТЛАДКА КНОПКИ ИСТОЧНИКА ===');
-    console.log('sourceLinkContainer найден:', !!sourceLinkContainer);
-    console.log('sourceLinkBtn найден:', !!sourceLinkBtn);
-    console.log('data.base_ad:', data.base_ad);
-    console.log('ad:', ad);
-    
     // Получаем source_url из base_ad (для уникальных объявлений)
     const sourceUrl = data.base_ad?.source_url || ad.source_url;
-    console.log('Итоговый sourceUrl:', sourceUrl);
     
     if (sourceUrl && sourceLinkContainer && sourceLinkBtn) {
-        console.log('✅ Показываем кнопку источника:', sourceUrl);
         sourceLinkBtn.href = sourceUrl;
         sourceLinkContainer.style.display = 'block';
     } else {
-        console.log('❌ Скрываем кнопку источника, причины:');
-        console.log('- sourceUrl:', !!sourceUrl);
-        console.log('- sourceLinkContainer:', !!sourceLinkContainer);
-        console.log('- sourceLinkBtn:', !!sourceLinkBtn);
         if (sourceLinkContainer) {
             sourceLinkContainer.style.display = 'none';
         }
@@ -492,43 +463,31 @@ function populateAdModal(data) {
 
 // Функция для показа дубликатов объявления
 function showDuplicatesModal(uniqueAdId) {
-    console.log('Загружаем дубликаты для уникального объявления ID:', uniqueAdId);
-    
     // Проверяем, не открыто ли уже модальное окно дубликатов
     const existingModal = document.getElementById('duplicatesModal');
     if (existingModal.classList.contains('show')) {
-        console.log('Модальное окно дубликатов уже открыто');
         return;
     }
     
     fetch(`/api/ads/unique/${uniqueAdId}`)
         .then(response => {
-            console.log('Ответ сервера:', response.status);
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}`);
             }
             return response.json();
         })
         .then(data => {
-            console.log('Данные дубликатов:', data);
             populateDuplicatesModal(data);
             const modalElement = document.getElementById('duplicatesModal');
-            console.log('Модальный элемент найден:', !!modalElement);
             const modal = new bootstrap.Modal(modalElement);
             modal.show();
-            console.log('Модальное окно дубликатов должно быть открыто');
         })
         .catch(error => {
-            console.error('Ошибка загрузки дубликатов:', error);
             showNotification('error', `Ошибка загрузки дубликатов: ${error.message}`);
         });
 }
 
 function populateDuplicatesModal(data) {
-    console.log('Данные для модального окна дубликатов:', data);
-    console.log('Дубликаты из API:', data.duplicates);
-    console.log('Базовое объявление:', data.base_ad);
-    
     // Заголовок
     document.getElementById('duplicates-main-title').textContent = data.base_ad.title || 'Основное объявление';
     document.getElementById('duplicates-count').textContent = data.duplicates.length;
@@ -537,13 +496,9 @@ function populateDuplicatesModal(data) {
     const duplicatesList = document.getElementById('duplicates-list');
     
     if (data.duplicates.length === 0) {
-        console.log('Дубликаты не найдены');
         duplicatesList.innerHTML = '<div class="col-12"><p class="text-muted text-center py-3">Дубликаты не найдены</p></div>';
         return;
     }
-    
-    console.log('Количество дубликатов:', data.duplicates.length);
-    console.log('Первый дубликат:', data.duplicates[0]);
     
     duplicatesList.innerHTML = data.duplicates.map(duplicate => {
         // Правильное отображение валюты для дубликатов
@@ -617,17 +572,8 @@ function populateDuplicatesModal(data) {
         `;
     }).join('');
     
-    console.log('HTML дубликатов сгенерирован, длина:', duplicatesList.innerHTML.length);
-    console.log('Первые 200 символов HTML:', duplicatesList.innerHTML.substring(0, 200));
-    console.log('Элемент duplicates-list найден:', !!duplicatesList);
-    console.log('Стили элемента duplicates-list:', window.getComputedStyle(duplicatesList).display);
-    
     // Проверяем, есть ли дочерние элементы
     setTimeout(() => {
-        console.log('Количество дочерних элементов в duplicates-list:', duplicatesList.children.length);
-        if (duplicatesList.children.length > 0) {
-            console.log('Первый дочерний элемент:', duplicatesList.children[0]);
-        }
     }, 100);
 }
 

@@ -583,28 +583,154 @@ def normalize_listing_type(listing_type: str) -> str:
         return "аренда"
     return value  # fallback: сохранить как есть, но в нижнем регистре
 
-@api_router.post("/ads", response_model=Ad, status_code=status.HTTP_201_CREATED)
+@api_router.post("/ads", response_model=Ad, status_code=status.HTTP_200_OK)
 async def create_ad(
     ad_data: AdCreateRequest,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ):
-    """Создает новое объявление"""
+    """Создает новое объявление или обновляет существующее по source_url"""
     # 🔍 Подробное логирование входящих данных
     logger.info(f"🔍 API received ad data: title='{ad_data.title[:50] if ad_data.title else 'None'}...'")
     logger.info(f"🔍 AI fields received: property_type={ad_data.property_type}, property_origin={ad_data.property_origin}, listing_type={ad_data.listing_type}")
     logger.info(f"🔍 Extracted data: rooms={ad_data.rooms}, area_sqm={ad_data.area_sqm}, floor={ad_data.floor}, total_floors={ad_data.total_floors}")
     logger.info(f"🔍 Realtor ID: {ad_data.realtor_id}")
+    logger.info(f"🔍 Source URL: {ad_data.source_url}")
     
     existing_ad = db.query(db_models.DBAd).filter(
         db_models.DBAd.source_url == ad_data.source_url
     ).first()
     
     if existing_ad:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Ad with this source_url already exists"
-        )
+        # 🔍 ПРОВЕРКА НА ИЗМЕНЕНИЯ
+        logger.info(f"🔍 Checking for changes in existing ad ID={existing_ad.id} from {ad_data.source_url}")
+        
+        # Сохраняем старые значения для сравнения
+        old_price = existing_ad.price
+        old_title = existing_ad.title
+        old_description = existing_ad.description
+        old_phone_numbers = existing_ad.phone_numbers
+        
+        # Проверяем основные изменения
+        has_changes = False
+        changes = []
+        # Безопасное сравнение с обработкой None
+        if old_price != ad_data.price:
+            has_changes = True
+            changes.append(f"price: {old_price} → {ad_data.price}")
+        
+        if old_title != ad_data.title:
+            has_changes = True
+            title_old = old_title[:30] + "..." if old_title and len(old_title) > 30 else old_title or "None"
+            title_new = ad_data.title[:30] + "..." if ad_data.title and len(ad_data.title) > 30 else ad_data.title or "None"
+            changes.append(f"title: '{title_old}' → '{title_new}'")
+        
+        if old_description != ad_data.description:
+            has_changes = True
+            changes.append("description updated")
+        
+        if old_phone_numbers != ad_data.phone_numbers:
+            has_changes = True
+            changes.append("phone_numbers updated")
+        
+        # Если изменений нет - пропускаем
+        if not has_changes:
+            logger.info(f"⏭️ No changes detected for ad ID={existing_ad.id}, skipping update")
+            return transform_ad(existing_ad)
+        # 🔄 ОБНОВЛЕНИЕ СУЩЕСТВУЮЩЕГО ОБЪЯВЛЕНИЯ
+        logger.info(f"🔄 Updating existing ad ID={existing_ad.id} with changes: {', '.join(changes)}")
+        # Обновляем основные поля
+        existing_ad.title = ad_data.title
+        existing_ad.description = ad_data.description
+        existing_ad.price = ad_data.price
+        existing_ad.price_original = ad_data.price_original
+        existing_ad.currency = ad_data.currency
+        existing_ad.rooms = ad_data.rooms
+        existing_ad.area_sqm = ad_data.area_sqm
+        existing_ad.land_area_sotka = ad_data.land_area_sotka
+        existing_ad.floor = ad_data.floor
+        existing_ad.total_floors = ad_data.total_floors
+        existing_ad.series = ad_data.series
+        existing_ad.building_type = ad_data.building_type
+        existing_ad.condition = ad_data.condition
+        existing_ad.furniture = ad_data.furniture
+        existing_ad.heating = ad_data.heating
+        existing_ad.hot_water = ad_data.hot_water
+        existing_ad.gas = ad_data.gas
+        existing_ad.ceiling_height = ad_data.ceiling_height
+        existing_ad.phone_numbers = ad_data.phone_numbers
+        existing_ad.attributes = ad_data.attributes
+        existing_ad.parsed_at = datetime.utcnow()
+        
+        # Обновляем AI поля
+        existing_ad.property_type = ad_data.property_type
+        existing_ad.property_origin = ad_data.property_origin
+        existing_ad.listing_type = normalize_listing_type(ad_data.listing_type) if ad_data.listing_type else None
+        existing_ad.realtor_id = ad_data.realtor_id
+        
+        # Обновляем published_at если есть новые данные
+        if ad_data.published_at:
+            try:
+                existing_ad.published_at = datetime.fromisoformat(ad_data.published_at)
+            except ValueError:
+                logger.warning(f"Invalid published_at format: {ad_data.published_at}")
+        
+        # Обновляем локацию если есть новые данные
+        if ad_data.location:
+            db_location = db.query(db_models.DBLocation).filter(
+                and_(
+                    db_models.DBLocation.city == ad_data.location.city,
+                    db_models.DBLocation.district == ad_data.location.district,
+                    db_models.DBLocation.address == ad_data.location.address
+                )
+            ).first()
+            
+            if not db_location:
+                db_location = db_models.DBLocation(
+                    city=ad_data.location.city,
+                    district=ad_data.location.district,
+                    address=ad_data.location.address
+                )
+                db.add(db_location)
+                db.flush()
+            
+            existing_ad.location_id = db_location.id
+        
+        # Удаляем старые фотографии и добавляем новые
+        if ad_data.photos:
+            # Удаляем старые фотографии
+            db.query(db_models.DBPhoto).filter(db_models.DBPhoto.ad_id == existing_ad.id).delete()
+            
+            # Добавляем новые фотографии
+            for photo in ad_data.photos:
+                db_photo = db_models.DBPhoto(
+                    url=str(photo.url),
+                    ad_id=existing_ad.id
+                )
+                db.add(db_photo)
+        
+        # Сбрасываем флаги обработки для повторной обработки дубликатов
+        existing_ad.is_processed = False
+        existing_ad.is_duplicate = False
+        
+        db.commit()
+        db.refresh(existing_ad)
+        
+        logger.info(f"✅ Ad updated successfully: ID={existing_ad.id}")
+        logger.info(f"📝 Changes applied: {', '.join(changes) if changes else 'none'}")
+        
+        # Отправляем событие об обновлении объявления
+        try:
+            from app.services.event_emitter import event_emitter
+            await event_emitter.emit_new_ad(
+                ad_id=existing_ad.id,
+                title=existing_ad.title or "Без названия",
+                source=existing_ad.source_name
+            )
+        except Exception as e:
+            logger.warning(f"Failed to emit events for updated ad: {e}")
+        
+        return transform_ad(existing_ad)
     
     try:
         db_location = None
@@ -687,7 +813,7 @@ async def create_ad(
         db.refresh(db_ad)
         
         # 🔍 Логирование сохраненных данных
-        logger.info(f"✅ Ad created successfully: ID={db_ad.id}")
+        logger.info(f"✅ New ad created successfully: ID={db_ad.id}")
         logger.info(f"✅ Saved AI fields: property_type='{db_ad.property_type}', property_origin='{db_ad.property_origin}', listing_type='{db_ad.listing_type}'")
         logger.info(f"✅ Saved extracted data: rooms={db_ad.rooms}, area_sqm={db_ad.area_sqm}, land_area_sotka={db_ad.land_area_sotka}, floor={db_ad.floor}, total_floors={db_ad.total_floors}")
         logger.info(f"✅ Saved realtor_id: {db_ad.realtor_id}")
@@ -1027,14 +1153,14 @@ async def reindex_elasticsearch_async():
     except Exception as e:
         logger.error(f"Error during Elasticsearch reindexing: {e}")
 
-async def process_photos_async():
+async def process_photos_async(batch_size: int = 200):
     """Фоновая задача для обработки фотографий"""
     try:
         photo_processing_status['status'] = 'running'
         photo_processing_status['last_started'] = datetime.utcnow().isoformat()
         db = SessionLocal()
         try:
-            await photo_service.process_all_unprocessed_photos(db)
+            await photo_service.process_all_unprocessed_photos(db, batch_size)
             photo_processing_status['status'] = 'completed'
             photo_processing_status['last_completed'] = datetime.utcnow().isoformat()
         finally:
@@ -1265,29 +1391,49 @@ async def get_realtors(
 ):
     """Получить список риэлторов с их статистикой"""
     try:
-        query = db.query(db_models.DBRealtor)
+        # Получаем всех риэлторов с динамическим подсчетом объявлений
+        all_realtors = db.query(db_models.DBRealtor).all()
+        realtors_with_counts = []
         
+        for realtor in all_realtors:
+            realtor_ads_count = db.query(db_models.DBUniqueAd).filter(
+                db_models.DBUniqueAd.realtor_id == realtor.id
+            ).count()
+            realtors_with_counts.append((realtor, realtor_ads_count))
+        
+        # Применяем фильтр по минимальному количеству объявлений
         if min_ads_count is not None:
-            query = query.filter(db_models.DBRealtor.total_ads_count >= min_ads_count)
+            realtors_with_counts = [(r, c) for r, c in realtors_with_counts if c >= min_ads_count]
         
+        # Применяем сортировку
         if sort_by == "confidence_score":
-            query = query.order_by(desc(db_models.DBRealtor.confidence_score))
+            realtors_with_counts.sort(key=lambda x: x[0].confidence_score or 0, reverse=True)
         elif sort_by == "last_activity":
-            query = query.order_by(desc(db_models.DBRealtor.last_activity))
-        else: 
-            query = query.order_by(desc(db_models.DBRealtor.total_ads_count))
+            realtors_with_counts.sort(key=lambda x: x[0].last_activity or datetime.min, reverse=True)
+        else:  # sort_by == "total_ads_count"
+            realtors_with_counts.sort(key=lambda x: x[1], reverse=True)
         
-        total = query.count()
-        realtors = query.offset(offset).limit(limit).all()
+        total = len(realtors_with_counts)
+        # Применяем пагинацию
+        start_idx = offset
+        end_idx = offset + limit
+        realtors_with_counts = realtors_with_counts[start_idx:end_idx]
+        
+        realtors = [realtor for realtor, _ in realtors_with_counts]
         
         result = []
         for realtor in realtors:
+            # Вычисляем актуальное количество объявлений риэлтора
+            realtor_ads_count = db.query(db_models.DBUniqueAd).filter(
+                db_models.DBUniqueAd.realtor_id == realtor.id
+            ).count()
+            
             result.append({
                 "id": realtor.id,
                 "phone_number": realtor.phone_number,
                 "name": realtor.name,
                 "company_name": realtor.company_name,
-                "total_ads_count": realtor.total_ads_count,
+                "total_ads_count": realtor_ads_count,
                 "active_ads_count": realtor.active_ads_count,
                 "confidence_score": realtor.confidence_score,
                 "average_price": realtor.average_price,
@@ -1322,12 +1468,17 @@ async def get_realtor_details(
         if not realtor:
             raise HTTPException(status_code=404, detail="Риэлтор не найден")
         
+        # Вычисляем актуальное количество объявлений риэлтора
+        realtor_ads_count = db.query(db_models.DBUniqueAd).filter(
+            db_models.DBUniqueAd.realtor_id == realtor.id
+        ).count()
+        
         result = {
             "id": realtor.id,
             "phone_number": realtor.phone_number,
             "name": realtor.name,
             "company_name": realtor.company_name,
-            "total_ads_count": realtor.total_ads_count,
+            "total_ads_count": realtor_ads_count,
             "active_ads_count": realtor.active_ads_count,
             "confidence_score": realtor.confidence_score,
             "average_price": realtor.average_price,
@@ -1364,19 +1515,31 @@ async def get_realtors_stats(db: Session = Depends(get_db)):
             db_models.DBRealtor.active_ads_count > 0
         ).scalar() or 0
         
-        avg_ads = db.query(func.avg(db_models.DBRealtor.total_ads_count)).scalar() or 0
+        # Вычисляем актуальную статистику по риэлторам
+        realtors_with_counts = []
+        all_realtors = db.query(db_models.DBRealtor).all()
         
-        top_realtors = db.query(db_models.DBRealtor).order_by(
-            desc(db_models.DBRealtor.total_ads_count)
-        ).limit(5).all()
+        for realtor in all_realtors:
+            realtor_ads_count = db.query(db_models.DBUniqueAd).filter(
+                db_models.DBUniqueAd.realtor_id == realtor.id
+            ).count()
+            realtors_with_counts.append((realtor, realtor_ads_count))
+        
+        # Сортируем по количеству объявлений для получения топ-5
+        realtors_with_counts.sort(key=lambda x: x[1], reverse=True)
+        top_realtors = realtors_with_counts[:5]
+        
+        # Вычисляем среднее количество объявлений
+        total_ads_count = sum(count for _, count in realtors_with_counts)
+        avg_ads = total_ads_count / len(realtors_with_counts) if realtors_with_counts else 0
         
         top_realtors_data = []
-        for realtor in top_realtors:
+        for realtor, ads_count in top_realtors:
             top_realtors_data.append({
                 "id": realtor.id,
                 "name": realtor.name or f"Риэлтор {realtor.phone_number}",
                 "phone_number": realtor.phone_number,
-                "total_ads_count": realtor.total_ads_count,
+                "total_ads_count": ads_count,
                 "confidence_score": realtor.confidence_score
             })
         

@@ -140,11 +140,11 @@ class DataCleaningPipeline:
         Очищает строку цены и определяет валюту
         """
         if not price_str:
-            return None, "USD"
+            return None, "SOM"
         
         price_str = str(price_str).strip()
         
-        currency = "USD"  
+        currency = "SOM"  
         
         if any(keyword in price_str.lower() for keyword in ['сом', 'som', 'kgs', 'кгс']):
             currency = "SOM"
@@ -677,9 +677,17 @@ class DatabasePipeline:
         try:
             response = requests.post(self.API_URL, json=payload, timeout=30)
             response.raise_for_status()
-            spider.logger.info(f"✅ Ad sent to API successfully: {payload.get('title')}")
-            scraping_logger.log_api_call_success(title, self.API_URL)
-            scraping_logger.log_item_success(title, payload)
+            
+            # Определяем тип операции по статус коду
+            if response.status_code == 200:
+                spider.logger.info(f"✅ Ad processed successfully (created or updated): {payload.get('title')}")
+                scraping_logger.log_api_call_success(title, self.API_URL)
+                scraping_logger.log_item_success(title, payload)
+            else:
+                spider.logger.info(f"✅ Ad sent to API with status {response.status_code}: {payload.get('title')}")
+                scraping_logger.log_api_call_success(title, self.API_URL)
+                scraping_logger.log_item_success(title, payload)
+                
         except requests.exceptions.HTTPError as e:
             error_text = ""
             try:
