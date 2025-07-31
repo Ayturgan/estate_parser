@@ -147,6 +147,26 @@
                         </div>
                         <small class="text-muted">Обновление индекса Elasticsearch</small>
                     </div>
+
+                    <div class="mb-3">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="enable_link_validation" 
+                                   onchange="updateSetting('enable_link_validation', this.checked, 'bool')">
+                            <label class="form-check-label" for="enable_link_validation">
+                                Валидация ссылок
+                            </label>
+                        </div>
+                        <small class="text-muted">Проверка и удаление объявлений с невалидными ссылками</small>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="link_validation_batch_size" class="form-label">
+                            <i class="bi bi-gear"></i> Размер батча валидации ссылок
+                        </label>
+                        <input type="number" class="form-control" id="link_validation_batch_size" 
+                               min="50" max="2000" onchange="updateSetting('link_validation_batch_size', this.value, 'int')">
+                        <small class="text-muted">Количество ссылок, обрабатываемых одновременно (рекомендуется 500 для больших объемов)</small>
+                    </div>
                 </div>
             </div>
         </div>
@@ -198,6 +218,8 @@ function populateSettingsForm() {
     document.getElementById('enable_duplicate_processing').checked = currentSettings.enable_duplicate_processing || false;
     document.getElementById('enable_realtor_detection').checked = currentSettings.enable_realtor_detection || false;
     document.getElementById('enable_elasticsearch_reindex').checked = currentSettings.enable_elasticsearch_reindex || false;
+    document.getElementById('enable_link_validation').checked = currentSettings.enable_link_validation || false;
+    document.getElementById('link_validation_batch_size').value = currentSettings.link_validation_batch_size || 500;
     
 
 }

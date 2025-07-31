@@ -208,6 +208,7 @@ class AutomationManager {
             if (stagesElement && status.enabled_stages) {
                 stagesElement.innerHTML = '';
                 const stageNames = {
+                    'link_validation': 'Валидация ссылок',
                     'scraping': 'Парсинг',
                     'photo_processing': 'Фото',
                     'duplicate_processing': 'Дубликаты',
@@ -287,6 +288,7 @@ class AutomationManager {
             
             if (status.current_stage && status.pipeline_status === 'running') {
                 const stageNames = {
+                    'link_validation': 'Валидация ссылок',
                     'scraping': 'Парсинг сайтов',
                     'photo_processing': 'Обработка фотографий',
                     'duplicate_processing': 'Обработка дубликатов',
@@ -349,6 +351,8 @@ class AutomationManager {
     
     getProgressText(stageKey, stageInfo) {
         switch (stageKey) {
+            case 'link_validation':
+                return `Проверено: ${stageInfo.processed || 0} ссылок`;
             case 'scraping':
                 return `Обработано: ${stageInfo.processed || 0} объявлений`;
             case 'photo_processing':

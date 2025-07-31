@@ -25,6 +25,7 @@ from app.services.duplicate_service import DuplicateService
 from app.services.elasticsearch_service import ElasticsearchService
 from app.services.scrapy_manager import ScrapyManager, SCRAPY_CONFIG_TO_SPIDER
 from app.services.automation_service import automation_service
+from app.services.link_validation_service import link_validation_service
 from app.web_routes import web_router
 from app.websocket import websocket_router
 from app.services.event_emitter import event_emitter
@@ -1237,6 +1238,40 @@ async def get_log(job_id: str, limit: int = 100):
     log = await scrapy_manager.get_log(job_id, limit=limit)
     return {"log": log}
 
+# Link Validation API endpoints
+@api_router.post("/validate/links")
+async def start_link_validation():
+    """Запуск валидации ссылок"""
+    try:
+        success = await link_validation_service.start_validation()
+        if success:
+            return {"message": "Валидация ссылок запущена", "status": "started"}
+        else:
+            raise HTTPException(status_code=400, detail="Валидация ссылок уже выполняется")
+    except Exception as e:
+        logger.error(f"Ошибка запуска валидации ссылок: {e}")
+        raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
+
+@api_router.get("/validate/links/status")
+async def get_link_validation_status():
+    """Получение статуса валидации ссылок"""
+    try:
+        status = link_validation_service.get_status()
+        return status
+    except Exception as e:
+        logger.error(f"Ошибка получения статуса валидации ссылок: {e}")
+        raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
+
+@api_router.post("/validate/links/stop")
+async def stop_link_validation():
+    """Остановка валидации ссылок"""
+    try:
+        link_validation_service.stop_validation()
+        return {"message": "Валидация ссылок остановлена", "status": "stopped"}
+    except Exception as e:
+        logger.error(f"Ошибка остановки валидации ссылок: {e}")
+        raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
+
 
 @api_router.get("/scraping/sources")
 async def get_scraping_sources():
@@ -1278,6 +1313,7 @@ async def get_automation_status():
     status['scraping_sources'] = settings_service.get_setting('scraping_sources', ['lalafo', 'stroka'])
     
     status['enabled_stages'] = {
+        'link_validation': settings_service.get_setting('enable_link_validation', True),
         'scraping': settings_service.get_setting('enable_scraping', True),
         'photo_processing': settings_service.get_setting('enable_photo_processing', True),
         'duplicate_processing': settings_service.get_setting('enable_duplicate_processing', True),

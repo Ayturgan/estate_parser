@@ -267,6 +267,20 @@ class SettingsService:
                 'description': 'Включить переиндексацию Elasticsearch',
                 'category': 'processing'
             },
+            {
+                'key': 'enable_link_validation',
+                'value': True,
+                'value_type': 'bool',
+                'description': 'Включить валидацию ссылок',
+                'category': 'processing'
+            },
+            {
+                'key': 'link_validation_batch_size',
+                'value': 500,
+                'value_type': 'int',
+                'description': 'Размер батча для валидации ссылок',
+                'category': 'processing'
+            },
             
 
         ]

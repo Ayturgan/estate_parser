@@ -11,7 +11,7 @@ from app.core.config import (
     get_auto_mode, get_pipeline_interval_minutes, get_run_immediately_on_start,
     get_scraping_sources, get_enable_scraping, get_enable_photo_processing,
     get_enable_duplicate_processing, get_enable_realtor_detection,
-    get_enable_elasticsearch_reindex
+    get_enable_elasticsearch_reindex, get_enable_link_validation
 )
 from app.services.scrapy_manager import ScrapyManager
 from app.services.event_emitter import event_emitter
@@ -35,6 +35,7 @@ class PipelineStatus(Enum):
     PAUSED = "paused"
 
 class PipelineStage(Enum):
+    LINK_VALIDATION = "link_validation"
     SCRAPING = "scraping"
     PHOTO_PROCESSING = "photo_processing"
     DUPLICATE_PROCESSING = "duplicate_processing"
@@ -69,6 +70,20 @@ class AutomationService:
         self.interval_hours = self.interval_minutes / 60.0
         
         self.stage_details = {
+            PipelineStage.LINK_VALIDATION: {
+                "name": "Валидация ссылок",
+                "status": "idle",
+                "started_at": None,
+                "completed_at": None,
+                "error": None,
+                "progress": {
+                    "total": 0,
+                    "valid": 0,
+                    "invalid": 0,
+                    "deleted": 0,
+                    "processed": 0
+                }
+            },
             PipelineStage.SCRAPING: {
                 "name": "Парсинг сайтов",
                 "status": "idle",
@@ -137,6 +152,7 @@ class AutomationService:
         }
         
         self.enabled_stages = {
+            PipelineStage.LINK_VALIDATION: get_enable_link_validation(),
             PipelineStage.SCRAPING: get_enable_scraping(),
             PipelineStage.PHOTO_PROCESSING: get_enable_photo_processing(), 
             PipelineStage.DUPLICATE_PROCESSING: get_enable_duplicate_processing(),
@@ -300,7 +316,9 @@ class AutomationService:
         await event_emitter.emit_automation_progress(stage.value, 0, {"stage": stage.value, "status": "started"})
         
         try:
-            if stage == PipelineStage.SCRAPING:
+            if stage == PipelineStage.LINK_VALIDATION:
+                success = await self._execute_link_validation()
+            elif stage == PipelineStage.SCRAPING:
                 success = await self._execute_scraping()
             elif stage == PipelineStage.PHOTO_PROCESSING:
                 success = await self._execute_photo_processing()
@@ -423,6 +441,81 @@ class AutomationService:
                 await asyncio.sleep(30)
         await self._update_stats()
         return progress["failed"] == 0
+    
+    async def _execute_link_validation(self) -> bool:
+        """Выполнение валидации ссылок"""
+        # Проверяем, включена ли валидация ссылок в настройках
+        if not self.enabled_stages[PipelineStage.LINK_VALIDATION]:
+            logger.info("🚫 Валидация ссылок отключена в настройках, пропускаем этап")
+            self.stage_details[PipelineStage.LINK_VALIDATION]["status"] = "skipped"
+            self.stage_details[PipelineStage.LINK_VALIDATION]["started_at"] = datetime.now().isoformat()
+            self.stage_details[PipelineStage.LINK_VALIDATION]["completed_at"] = datetime.now().isoformat()
+            return True
+        
+        logger.info("🔍 Запуск валидации ссылок...")
+        
+        # Обновляем статус
+        self.stage_details[PipelineStage.LINK_VALIDATION]["status"] = "running"
+        self.stage_details[PipelineStage.LINK_VALIDATION]["started_at"] = datetime.now().isoformat()
+        
+        progress = self.stage_details[PipelineStage.LINK_VALIDATION]["progress"]
+        progress["total"] = 0
+        progress["valid"] = 0
+        progress["invalid"] = 0
+        progress["deleted"] = 0
+        progress["processed"] = 0
+        
+        try:
+            async with self.session.post(f"{self.api_base_url}/api/validate/links") as response:
+                if response.status not in [200, 201, 202]:
+                    logger.error(f"Ошибка запуска валидации ссылок: {response.status}")
+                    return False
+                    
+            logger.info("Валидация ссылок запущена, ожидание завершения...")
+            return await self._wait_for_link_validation_completion()
+        except Exception as e:
+            logger.error(f"Ошибка запуска валидации ссылок: {e}")
+            return False
+    
+    async def _wait_for_link_validation_completion(self) -> bool:
+        """Ожидание завершения валидации ссылок"""
+        progress = self.stage_details[PipelineStage.LINK_VALIDATION]["progress"]
+        max_wait_time = 3600  # 1 час
+        check_interval = 30  # 30 секунд
+        elapsed_time = 0
+        
+        while elapsed_time < max_wait_time:
+            try:
+                async with self.session.get(f"{self.api_base_url}/api/validate/links/status") as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        status = data.get('status', 'unknown')
+                        
+                        if status == 'completed':
+                            progress.update(data.get('progress', {}))
+                            logger.info("Валидация ссылок завершена")
+                            return True
+                        elif status == 'running':
+                            progress.update(data.get('progress', {}))
+                            logger.info(f"Валидация ссылок выполняется... Обработано: {progress.get('processed', 0)}/{progress.get('total', 0)}")
+                        elif status == 'error':
+                            logger.error("Ошибка валидации ссылок")
+                            return False
+                        elif status == 'idle':
+                            logger.info("Валидация ссылок завершена (статус: idle)")
+                            return True
+                            
+                    else:
+                        logger.warning(f"Не удалось проверить статус валидации ссылок: {response.status}")
+                        
+            except Exception as e:
+                logger.error(f"Ошибка проверки статуса валидации ссылок: {e}")
+            
+            await asyncio.sleep(check_interval)
+            elapsed_time += check_interval
+        
+        logger.warning("Превышено время ожидания для валидации ссылок")
+        return False
     
     async def _wait_for_process_completion(self, process_type: str) -> bool:
         """Ожидание завершения фоновых процессов"""
@@ -623,6 +716,7 @@ class AutomationService:
         self.interval_minutes = get_pipeline_interval_minutes()
         self.interval_hours = self.interval_minutes / 60.0
         self.enabled_stages = {
+            PipelineStage.LINK_VALIDATION: get_enable_link_validation(),
             PipelineStage.SCRAPING: get_enable_scraping(),
             PipelineStage.PHOTO_PROCESSING: get_enable_photo_processing(),
             PipelineStage.DUPLICATE_PROCESSING: get_enable_duplicate_processing(),
@@ -745,6 +839,7 @@ class AutomationService:
         try:
             # Проверяем все статусы только если есть активные WebSocket соединения
             if websocket_manager.is_anyone_online():
+                await self._update_link_validation_status()
                 await self._update_duplicates_status()
                 await self._update_photos_status()
                 await self._update_realtors_status()
@@ -754,7 +849,7 @@ class AutomationService:
                 await self._update_stats()
             else:
                 # Если пользователи офлайн, сбрасываем все статусы в idle
-                for stage_enum in [PipelineStage.DUPLICATE_PROCESSING, PipelineStage.PHOTO_PROCESSING, PipelineStage.REALTOR_DETECTION]:
+                for stage_enum in [PipelineStage.LINK_VALIDATION, PipelineStage.DUPLICATE_PROCESSING, PipelineStage.PHOTO_PROCESSING, PipelineStage.REALTOR_DETECTION]:
                     stage = self.stage_details[stage_enum]
                     if stage["status"] == "running":
                         stage["status"] = "idle"
@@ -769,6 +864,55 @@ class AutomationService:
             
         except Exception as e:
             logger.error(f"Ошибка обновления статуса этапов: {e}")
+    
+    async def _update_link_validation_status(self):
+        """Обновление статуса валидации ссылок"""
+        try:
+            async with self.session.get(f"{self.api_base_url}/api/validate/links/status") as response:
+                if response.status == 200:
+                    data = await response.json()
+                    stage = self.stage_details[PipelineStage.LINK_VALIDATION]
+                    status = data.get('status', 'idle')
+                    
+                    if status == 'running':
+                        stage["status"] = "running"
+                        if not stage["started_at"]:
+                            stage["started_at"] = datetime.now()
+                        progress = data.get('progress', {})
+                        if progress:
+                            stage["progress"].update(progress)
+                            
+                    elif status == 'completed':
+                        stage["status"] = "completed"
+                        if not stage["completed_at"]:
+                            stage["completed_at"] = datetime.now()
+                        last_completed = data.get('completed_at')
+                        if last_completed:
+                            try:
+                                from dateutil import parser
+                                completed_time = parser.parse(last_completed)
+                                if (datetime.now(completed_time.tzinfo) - completed_time).total_seconds() > 10:
+                                    stage["status"] = "idle"
+                                    stage["started_at"] = None
+                                    stage["completed_at"] = None
+                            except:
+                                pass
+                                
+                    elif status == 'idle':
+                        stage["status"] = "idle"
+                        stage["started_at"] = None
+                        stage["completed_at"] = None
+                        
+                    elif status == 'error':
+                        stage["status"] = "error"
+                        stage["error"] = data.get('error', 'Произошла ошибка')
+                        stage["completed_at"] = datetime.now()
+        except Exception as e:
+            # Логируем ошибку только если есть активные соединения
+            if websocket_manager.is_anyone_online():
+                logger.error(f"❌ Ошибка проверки статуса валидации ссылок: {e}")
+            else:
+                logger.debug(f"Не удалось обновить статус валидации ссылок (пользователи офлайн): {e}")
     
     async def _update_duplicates_status(self):
         """Обновление статуса обработки дубликатов"""

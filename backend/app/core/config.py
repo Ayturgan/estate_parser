@@ -82,6 +82,12 @@ def get_enable_realtor_detection():
 def get_enable_elasticsearch_reindex():
     return get_setting_from_db('enable_elasticsearch_reindex', True, bool)
 
+def get_enable_link_validation():
+    return get_setting_from_db('enable_link_validation', True, bool)
+
+def get_link_validation_batch_size():
+    return get_setting_from_db('link_validation_batch_size', 500, int)
+
 # PgAdmin Configuration
 PGADMIN_DEFAULT_EMAIL = os.getenv("PGADMIN_DEFAULT_EMAIL", "admin@admin.com")
 PGADMIN_DEFAULT_PASSWORD = os.getenv("PGADMIN_DEFAULT_PASSWORD", "admin123")
