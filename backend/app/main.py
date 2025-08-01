@@ -17,6 +17,10 @@ import os
 from app.database.models import Ad, AdCreateRequest, PaginatedUniqueAdsResponse, AdSource, DuplicateInfo, StatsResponse
 from app.database import get_db, SessionLocal
 from app.database import db_models
+from app.database.db_models import (
+    DBLocation, DBRealtor, DBAd, DBPhoto, DBUniqueAd,
+    DBUniquePhoto, DBAdDuplicate, DBAdmin, DBSettings
+)
 from app.utils.transform import transform_ad, transform_unique_ad, transform_realtor
 from app.core.config import API_HOST, API_PORT, REDIS_URL, ELASTICSEARCH_HOSTS, ELASTICSEARCH_INDEX
 from app.utils.duplicate_processor import DuplicateProcessor
