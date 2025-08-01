@@ -13,12 +13,12 @@ services:
       - "${DB_PORT}:5432"
     networks:
       - estate_network
-    # healthcheck:
-    #   test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
-    #   interval: 10s
-    #   timeout: 5s
-    #   retries: 5
-    #   start_period: 30s
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   # Redis для кэширования и очередей
   redis:
@@ -28,11 +28,11 @@ services:
       - "${REDIS_EXTERNAL_PORT}:6379"
     networks:
       - estate_network
-    # healthcheck:
-    #   test: ["CMD", "redis-cli", "ping"]
-    #   interval: 10s
-    #   timeout: 5s
-    #   retries: 5
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   # Elasticsearch для поиска
   elasticsearch:
@@ -49,12 +49,12 @@ services:
       - "${ELASTICSEARCH_TRANSPORT_PORT}:9300"
     networks:
       - estate_network
-    # healthcheck:
-    #   test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
-    #   interval: 30s
-    #   timeout: 10s
-    #   retries: 5
-    #   start_period: 60s
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
 
   # PgAdmin для управления БД
   pgadmin:
@@ -102,12 +102,12 @@ services:
       - ./logs:/app/logs
     networks:
       - estate_network
-    # healthcheck:
-    #   test: ["CMD-SHELL", "curl -f http://localhost:8000/api/status || exit 1"]
-    #   interval: 30s
-    #   timeout: 10s
-    #   retries: 3
-    #   start_period: 180s
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/api/status || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 180s
 
   # Scraper сервис
   scraper:
@@ -126,12 +126,12 @@ services:
       - ./backend:/app/backend
     networks:
       - estate_network
-    # healthcheck:
-    #   test: ["CMD-SHELL", "pgrep -f 'python.*worker.py' || exit 1"]
-    #   interval: 30s
-    #   timeout: 10s
-    #   retries: 3
-    #   start_period: 30s
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f 'python.*worker.py' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
 
 volumes:

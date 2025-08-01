@@ -85,7 +85,7 @@ categories:
 
 # Настройки парсинга
 parse_all_listings: false       # true = парсить ВСЕ объявления, false = ограничение
-max_items_limit: 200         # Если parse_all_listings: false, то сколько объявлений парсить ПО КАЖДОЙ КАТЕГОРИИ
+max_items_limit: 100         # Если parse_all_listings: false, то сколько объявлений парсить ПО КАЖДОЙ КАТЕГОРИИ
 
 # Настройки Playwright
 playwright:
