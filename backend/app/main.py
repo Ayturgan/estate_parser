@@ -147,30 +147,77 @@ app = FastAPI(
 )
 
 # Настройки CORS для продакшена
-ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "https://adgregory.i7.kg,http://adgregory.i7.kg").split(",")
 if ALLOWED_ORIGINS == ["*"]:
     # Для разработки - разрешаем все
     origins = ["*"]
 else:
     # Для продакшена - только указанные домены
     origins = [origin.strip() for origin in ALLOWED_ORIGINS if origin.strip()]
+    
+    # Добавляем IP адрес сервера автоматически
+    server_ip = os.getenv("SERVER_IP")
+    if server_ip:
+        origins.extend([
+            f"http://{server_ip}",
+            f"https://{server_ip}",
+            f"http://{server_ip}:80",
+            f"https://{server_ip}:443"
+        ])
+    else:
+        # Автоматически определяем IP адрес сервера
+        try:
+            import socket
+            hostname = socket.gethostname()
+            local_ip = socket.gethostbyname(hostname)
+            if local_ip and local_ip != "127.0.0.1":
+                origins.extend([
+                    f"http://{local_ip}",
+                    f"https://{local_ip}",
+                    f"http://{local_ip}:80",
+                    f"https://{local_ip}:443"
+                ])
+                logger.info(f"Автоматически добавлен IP адрес сервера: {local_ip}")
+        except Exception as e:
+            logger.warning(f"Не удалось автоматически определить IP адрес сервера: {e}")
+    
+    # Добавляем localhost для разработки
+    if os.getenv("ENVIRONMENT", "production") == "development":
+        origins.extend(["http://localhost:8000", "http://127.0.0.1:8000"])
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
-# Подключение статических файлов
-app.mount("/static", StaticFiles(directory="app/static"), name="static")
+# Дополнительные заголовки безопасности для продакшена
+@app.middleware("http")
+async def add_security_headers(request, call_next):
+    response = await call_next(request)
+    
+    # Заголовки безопасности
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    
+    # HSTS для HTTPS
+    if request.url.scheme == "https":
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    
+    return response
+
+# Подключение WebSocket (ПЕРВЫМ!)
+app.include_router(websocket_router)
 
 # Подключение веб-интерфейса
 app.include_router(web_router)
 
-# Подключение WebSocket
-app.include_router(websocket_router)
+# Подключение статических файлов (ПОСЛЕДНИМ!)
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 # Подключение API роутеров
 
