@@ -188,7 +188,8 @@ class WebSocketClient {
         // --- НАЧАЛО ИСПРАВЛЕНИЯ ---
         // Формируем URL, передавая в параметре 'token' ТОЛЬКО чистый токен.
         // Сервер ожидает именно такой формат.
-        let wsUrl = `${protocol}//${window.location.host}/ws?token=${encodeURIComponent(token)}`;
+        let wsUrl = `${protocol}//${window.location.host}/api/ws?token=Bearer%20${encodeURIComponent(token)}`;
+
 
         // --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 

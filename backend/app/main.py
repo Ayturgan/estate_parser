@@ -257,7 +257,8 @@ async def websocket_upgrade_middleware(request, call_next):
 logger.info("✅ WebSocket middleware добавлен")
 
 # Подключение WebSocket (ПЕРВЫМ!)
-app.include_router(websocket_router)
+app.include_router(websocket_router, prefix="/api")
+
 logger.info("✅ WebSocket роутер подключен")
 
 # Подключение веб-интерфейса
