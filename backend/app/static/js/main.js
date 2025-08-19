@@ -1,4 +1,8 @@
 // Основной JavaScript файл для Estate Parser Web Interface
+// 
+// ВАЖНО: localStorage для токенов убран для продакшна!
+// Теперь используется только cookies для предотвращения проблем
+// с устаревшими токенами при изменении JWT_SECRET_KEY
 
 // Глобальные переменные
 let statusCheckInterval;
@@ -6,16 +10,28 @@ let realTimeUpdates = {};
 
 // Функции для работы с токенами авторизации
 function setAuthToken(token) {
-    localStorage.setItem('auth_token', token);
-    // Также устанавливаем в cookie для совместимости
+    // Убираем localStorage - используем только cookies для продакшна
+    // localStorage.setItem('auth_token', token); // ЗАКОММЕНТИРОВАНО
+    
+    // Устанавливаем в cookie для WebSocket
     document.cookie = `ws_token=${token}; path=/; samesite=strict`;
+    
     // Отправляем событие для WebSocket клиента с токеном
     window.dispatchEvent(new CustomEvent('auth_token_received', { detail: { token } }));
 }
 
 function getAuthToken() {
-    // Единственный источник правды - localStorage
-    const token = localStorage.getItem('auth_token');
+    // Получаем токен из cookie вместо localStorage
+    const token = getCookie('ws_token');
+    if (!token) {
+        // Fallback на localStorage для совместимости (можно убрать позже)
+        // TODO: В продакшне можно полностью убрать localStorage
+        // Для этого:
+        // 1. Раскомментировать migrateToCookiesOnly() в DOMContentLoaded
+        // 2. Убрать эту строку: return localStorage.getItem('auth_token');
+        // 3. Убрать все localStorage.setItem и localStorage.removeItem
+        return localStorage.getItem('auth_token');
+    }
     return token;
 }
 
@@ -29,9 +45,16 @@ function getCookie(name) {
 }
 
 function removeAuthToken() {
+    // Убираем из localStorage
     localStorage.removeItem('auth_token');
+    
     // Удаляем WebSocket token cookie
     document.cookie = 'ws_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+    
+    // Очищаем все связанные с аутентификацией данные из localStorage
+    // Это предотвратит проблемы с устаревшими токенами
+    localStorage.removeItem('search_history'); // Можно оставить, если нужна история поиска
+    
     // Отправляем событие для WebSocket клиента
     window.dispatchEvent(new Event('auth_logout'));
 }
@@ -53,6 +76,15 @@ document.addEventListener('DOMContentLoaded', function() {
     document.documentElement.setAttribute('data-bs-theme', 'light');
     document.body.setAttribute('data-bs-theme', 'light');
     
+    // Очищаем устаревшие токены из localStorage для предотвращения проблем
+    cleanupOldTokens();
+    
+    // В продакшне можно включить полный переход на cookies
+    // migrateToCookiesOnly();
+    
+    // Тестируем работу без localStorage (можно включить в продакшне)
+    // testCookiesOnlyMode();
+    
     initializeStatusCheck();
     initializeTooltips();
     initializeModals();
@@ -60,6 +92,66 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // WebSocket инициализируется автоматически в websocket.js
 });
+
+// Функция очистки устаревших токенов
+function cleanupOldTokens() {
+    const oldToken = localStorage.getItem('auth_token');
+    if (oldToken) {
+        console.log('🧹 Очищаем устаревший токен из localStorage');
+        localStorage.removeItem('auth_token');
+        
+        // Проверяем, есть ли актуальный токен в cookie
+        const currentToken = getCookie('ws_token');
+        if (currentToken) {
+            console.log('✅ Найден актуальный токен в cookie');
+        } else {
+            console.log('⚠️ Токен в cookie не найден, требуется повторная авторизация');
+        }
+    }
+}
+
+// Функция для полного перехода на cookies (использовать в продакшне)
+function migrateToCookiesOnly() {
+    console.log('🔄 Переход на cookies-only режим...');
+    
+    // Очищаем все токены из localStorage
+    localStorage.removeItem('auth_token');
+    
+    // Проверяем токен в cookie
+    const cookieToken = getCookie('ws_token');
+    if (cookieToken) {
+        console.log('✅ Токен в cookie найден, переход завершен');
+        return true;
+    } else {
+        console.log('❌ Токен в cookie не найден, требуется авторизация');
+        return false;
+    }
+}
+
+// Функция проверки работы без localStorage
+function testCookiesOnlyMode() {
+    console.log('🧪 Тестируем режим cookies-only...');
+    
+    // Временно отключаем localStorage
+    const originalGetItem = localStorage.getItem;
+    const originalSetItem = localStorage.setItem;
+    const originalRemoveItem = localStorage.removeItem;
+    
+    localStorage.getItem = function() { return null; };
+    localStorage.setItem = function() { console.log('🚫 localStorage.setItem заблокирован'); };
+    localStorage.removeItem = function() { console.log('🚫 localStorage.removeItem заблокирован'); };
+    
+    // Тестируем получение токена
+    const token = getAuthToken();
+    console.log('🔑 Токен получен:', token ? '✅' : '❌');
+    
+    // Восстанавливаем localStorage
+    localStorage.getItem = originalGetItem;
+    localStorage.setItem = originalSetItem;
+    localStorage.removeItem = originalRemoveItem;
+    
+    return token !== null;
+}
 
 // Проверка статуса системы (только при загрузке страницы)
 async function checkSystemStatus() {

@@ -15,9 +15,19 @@ class AuthService:
     
     def __init__(self):
         # Секретный ключ для JWT (в продакшене должен быть в переменных окружения)
-        self.JWT_SECRET_KEY = "your-secret-key-change-in-production"
+        import os
+        self.JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "your-secret-key-change-in-production")
         self.JWT_ALGORITHM = "HS256"
         self.JWT_EXPIRATION_HOURS = 24
+        
+        # Проверяем, что секретный ключ установлен правильно
+        if not self.JWT_SECRET_KEY or self.JWT_SECRET_KEY == "your-secret-key-change-in-production":
+            logger.error("❌ JWT_SECRET_KEY не установлен или использует значение по умолчанию!")
+            logger.error("❌ Установите переменную окружения JWT_SECRET_KEY")
+        else:
+            logger.info(f"✅ JWT_SECRET_KEY установлен: {self.JWT_SECRET_KEY[:10]}...")
+        
+        logger.info(f"🔑 AuthService initialized with JWT_SECRET_KEY: {self.JWT_SECRET_KEY[:10]}..." if self.JWT_SECRET_KEY else "🔑 AuthService initialized with JWT_SECRET_KEY: None")
 
     def hash_password(self, password: str) -> str:
         """Хэширует пароль с солью"""
@@ -62,14 +72,30 @@ class AuthService:
 
     def verify_token(self, token: str) -> Optional[dict]:
         """Проверяет JWT токен и возвращает данные пользователя"""
+        logger.info(f"🔍 Verifying JWT token")
+        logger.info(f"🔑 Secret key: {self.JWT_SECRET_KEY[:10]}..." if self.JWT_SECRET_KEY else "🔑 Secret key: None")
+        logger.info(f"🔑 Algorithm: {self.JWT_ALGORITHM}")
+        
         try:
             payload = jwt.decode(token, self.JWT_SECRET_KEY, algorithms=[self.JWT_ALGORITHM])
+            logger.info(f"✅ Token decoded successfully: {payload}")
             return payload
         except jwt.ExpiredSignatureError:
-            logger.warning("Token expired")
+            logger.warning("❌ Token expired")
             return None
         except jwt.InvalidTokenError as e:
-            logger.warning(f"Invalid token: {e}")
+            logger.warning(f"❌ Invalid token: {e}")
+            return None
+        except jwt.DecodeError as e:
+            logger.warning(f"❌ Token decode error: {e}")
+            return None
+        except jwt.InvalidSignatureError as e:
+            logger.warning(f"❌ Invalid signature: {e}")
+            logger.warning(f"❌ Возможно, JWT_SECRET_KEY не совпадает с ключом, которым был подписан токен")
+            return None
+        except Exception as e:
+            logger.error(f"❌ Unexpected error during token verification: {e}")
+            logger.exception("Full traceback:")
             return None
 
     def create_admin(self, db: Session, admin_data: AdminCreate) -> AdminResponse:
@@ -135,18 +161,28 @@ class AuthService:
 
     def get_admin_by_token(self, db: Session, token: str) -> Optional[AdminResponse]:
         """Получает данные администратора по токену"""
+        logger.info(f"🔍 Verifying token for admin lookup")
+        
         payload = self.verify_token(token)
         if not payload:
+            logger.warning(f"❌ Token verification failed")
             return None
         
+        logger.info(f"✅ Token verified, payload: {payload}")
+        
         admin_id = int(payload.get("sub"))
+        logger.info(f"🔍 Looking for admin with ID: {admin_id}")
+        
         admin = db.query(DBAdmin).filter(
             DBAdmin.id == admin_id,
             DBAdmin.is_active == True
         ).first()
         
         if not admin:
+            logger.warning(f"❌ Admin not found or inactive: ID={admin_id}")
             return None
+        
+        logger.info(f"✅ Admin found: {admin.username} (ID: {admin.id})")
         
         return AdminResponse(
             id=admin.id,

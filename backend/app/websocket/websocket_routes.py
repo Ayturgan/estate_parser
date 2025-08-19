@@ -20,12 +20,18 @@ async def websocket_endpoint(
     """WebSocket endpoint для real-time соединений"""
     connection_id = None
     
+    logger.info(f"🔌 WebSocket connection attempt from {websocket.client.host}:{websocket.client.port}")
+    logger.info(f"🔑 Token received: {token[:50]}..." if token and len(token) > 50 else f"🔑 Token received: {token}")
+    
     try:
         # Подключаем клиента с аутентификацией
         connection_id = await websocket_manager.connect(websocket, token, db)
         
         if not connection_id:
+            logger.warning("❌ WebSocket connection failed - no connection_id returned")
             return
+        
+        logger.info(f"✅ WebSocket connected successfully: {connection_id}")
         
         # Отправляем начальную статистику
         await send_initial_data(connection_id, db)
@@ -36,15 +42,17 @@ async def websocket_endpoint(
                 data = await websocket.receive_text()
                 await handle_websocket_message(connection_id, data, db)
             except WebSocketDisconnect:
+                logger.info(f"📡 WebSocket disconnected: {connection_id}")
                 break
             except Exception as e:
-                logger.error(f"Error processing WebSocket message: {e}")
+                logger.error(f"❌ Error processing WebSocket message: {e}")
                 break
                 
     except WebSocketDisconnect:
-        logger.info(f"WebSocket disconnected: {connection_id}")
+        logger.info(f"📡 WebSocket disconnected: {connection_id}")
     except Exception as e:
-        logger.error(f"WebSocket error: {e}")
+        logger.error(f"❌ WebSocket error: {e}")
+        logger.exception("Full traceback:")
     finally:
         if connection_id:
             websocket_manager.disconnect(connection_id)

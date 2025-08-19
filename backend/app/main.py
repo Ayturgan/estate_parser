@@ -132,12 +132,13 @@ async def lifespan(app: FastAPI):
     # Запуск сервиса автоматизации
     await automation_service.start_service()
     
-    logger.info("Starting Real Estate API...")
+    logger.info("🚀 Starting Real Estate API...")
+    logger.info("✅ Все сервисы инициализированы успешно!")
     yield
     
     # Остановка сервиса автоматизации
     await automation_service.stop_service()
-    logger.info("Shutting down Real Estate API...")
+    logger.info("🛑 Shutting down Real Estate API...")
 
 app = FastAPI(
     title="Real Estate Aggregator API",
@@ -146,14 +147,27 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+
+# Проверяем JWT_SECRET_KEY
+jwt_secret = os.getenv('JWT_SECRET_KEY', 'не указан')
+if jwt_secret and jwt_secret != 'your-super-secret-jwt-key-change-in-production':
+    logger.info(f"🔒 JWT_SECRET_KEY: {jwt_secret[:10]}...")
+else:
+    logger.error("❌ JWT_SECRET_KEY не установлен или использует значение по умолчанию!")
+    logger.error("❌ Установите переменную окружения JWT_SECRET_KEY в .env файле")
+
 # Настройки CORS для продакшена
+logger.info("🔒 Настраиваем CORS...")
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "https://adgregory.i7.kg,http://adgregory.i7.kg").split(",")
+logger.info(f"🔒 ALLOWED_ORIGINS из env: {ALLOWED_ORIGINS}")
+
 if ALLOWED_ORIGINS == ["*"]:
     # Для разработки - разрешаем все
     origins = ["*"]
 else:
     # Для продакшена - только указанные домены
     origins = [origin.strip() for origin in ALLOWED_ORIGINS if origin.strip()]
+    logger.info(f"🔒 CORS: продакшн режим - источники: {origins}")
     
     # Добавляем IP адрес сервера автоматически
     server_ip = os.getenv("SERVER_IP")
@@ -164,6 +178,7 @@ else:
             f"http://{server_ip}:80",
             f"https://{server_ip}:443"
         ])
+        logger.info(f"🔒 CORS: добавлен IP сервера: {server_ip}")
     else:
         # Автоматически определяем IP адрес сервера
         try:
@@ -177,13 +192,16 @@ else:
                     f"http://{local_ip}:80",
                     f"https://{local_ip}:443"
                 ])
-                logger.info(f"Автоматически добавлен IP адрес сервера: {local_ip}")
+                logger.info(f"🔒 CORS: автоматически добавлен IP адрес сервера: {local_ip}")
         except Exception as e:
-            logger.warning(f"Не удалось автоматически определить IP адрес сервера: {e}")
+            logger.warning(f"🔒 CORS: не удалось автоматически определить IP адрес сервера: {e}")
     
     # Добавляем localhost для разработки
     if os.getenv("ENVIRONMENT", "production") == "development":
         origins.extend(["http://localhost:8000", "http://127.0.0.1:8000"])
+        logger.info("🔒 CORS: добавлен localhost для разработки")
+
+logger.info(f"🔒 Итоговые CORS источники: {origins}")
 
 app.add_middleware(
     CORSMiddleware,
@@ -210,14 +228,45 @@ async def add_security_headers(request, call_next):
     
     return response
 
+logger.info("✅ Middleware безопасности добавлен")
+
+# Специальная обработка CORS для WebSocket
+@app.middleware("http")
+async def websocket_cors_middleware(request, call_next):
+    if request.url.path == "/ws":
+        # Для WebSocket endpoint разрешаем все заголовки
+        response = await call_next(request)
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "*"
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        return response
+    return await call_next(request)
+
+# Специальная обработка для WebSocket upgrade
+@app.middleware("http")
+async def websocket_upgrade_middleware(request, call_next):
+    if request.url.path == "/ws" and request.method == "GET":
+        # Добавляем заголовки для WebSocket upgrade
+        response = await call_next(request)
+        response.headers["Upgrade"] = "websocket"
+        response.headers["Connection"] = "Upgrade"
+        return response
+    return await call_next(request)
+
+logger.info("✅ WebSocket middleware добавлен")
+
 # Подключение WebSocket (ПЕРВЫМ!)
 app.include_router(websocket_router)
+logger.info("✅ WebSocket роутер подключен")
 
 # Подключение веб-интерфейса
 app.include_router(web_router)
+logger.info("✅ Веб-роутер подключен")
 
 # Подключение статических файлов (ПОСЛЕДНИМ!)
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
+logger.info("✅ Статические файлы подключены")
 
 # Подключение API роутеров
 
@@ -1655,6 +1704,7 @@ async def rebuild_realtors(background_tasks: BackgroundTasks, db: Session = Depe
         raise HTTPException(status_code=500, detail=str(e))
 
 app.include_router(api_router)
+logger.info("✅ API роутер подключен")
 
 
 if __name__ == "__main__":

@@ -95,6 +95,7 @@ services:
       - ENVIRONMENT=${ENVIRONMENT}
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS}
       - SERVER_IP=${SERVER_IP}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
     ports:
       - "${API_PORT}:8000"
     depends_on:
@@ -125,6 +126,7 @@ services:
       - ENVIRONMENT=${ENVIRONMENT}
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS}
       - SERVER_IP=${SERVER_IP}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
     depends_on:
       - api
     volumes:
