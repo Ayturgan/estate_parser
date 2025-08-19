@@ -88,8 +88,6 @@ async def home_page(
         
         all_property_types = db.query(db_models.DBUniqueAd.property_type).all()
         all_listing_types = db.query(db_models.DBUniqueAd.listing_type).all()
-        print(f"[DEBUG] all_property_types (raw): {all_property_types}")
-        print(f"[DEBUG] all_listing_types (raw): {all_listing_types}")
         
         if query and query.strip():
             search_term = f"%{query.strip()}%"
@@ -107,15 +105,10 @@ async def home_page(
                 )
             )
         
-        print(f"[DEBUG] phone_number parameter: '{phone_number}'")
         if phone_number and phone_number.strip():
-            print(f"[DEBUG] Applying phone filter for: '{phone_number.strip()}'")
             db_query = db_query.filter(
                 db_models.DBUniqueAd.phone_numbers.contains([phone_number.strip()])
             )
-            print(f"[DEBUG] Phone filter applied")
-        else:
-            print(f"[DEBUG] No phone filter applied")
         
         if city:
             db_query = db_query.join(db_models.DBUniqueAd.location).filter(
@@ -159,10 +152,6 @@ async def home_page(
         property_types = normalize_property_types(property_types_raw)
         listing_types = db.query(db_models.DBUniqueAd.listing_type).filter(db_models.DBUniqueAd.listing_type.isnot(None)).all()
         listing_types = sorted(set(lt[0].strip() for lt in listing_types if lt[0] and lt[0].strip()))
-        print(f"[DEBUG] property_types: {property_types}")
-        print(f"[DEBUG] listing_types: {listing_types}")
-        print(f"[DEBUG] selected property_type: {property_type}")
-        print(f"[DEBUG] selected listing_type: {listing_type}")
 
 
         # Фильтрация по типу недвижимости
@@ -191,15 +180,11 @@ async def home_page(
             )
         
         if is_realtor is not None:
-            print(f"DEBUG: is_realtor = {is_realtor}, type = {type(is_realtor)}")
             is_realtor_bool = str(is_realtor).lower() in ['true', '1', 'yes']
-            print(f"DEBUG: is_realtor_bool = {is_realtor_bool}")
             if is_realtor_bool:
                 db_query = db_query.filter(db_models.DBUniqueAd.realtor_id.isnot(None))
-                print("DEBUG: Applied filter for realtors")
             else:
                 db_query = db_query.filter(db_models.DBUniqueAd.realtor_id.is_(None))
-                print("DEBUG: Applied filter for non-realtors")
         
         # Сортировка
         sort_column = getattr(db_models.DBUniqueAd, sort_by, db_models.DBUniqueAd.created_at)
@@ -211,7 +196,6 @@ async def home_page(
         # Пагинация
         total = db_query.count()
         ads = db_query.offset(offset).limit(limit).all()
-        print(f"[DEBUG] total ads after filter: {total}")
         
         cities = db.query(distinct(db_models.DBLocation.city)).filter(
             db_models.DBLocation.city.isnot(None)

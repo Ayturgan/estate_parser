@@ -168,6 +168,8 @@ class WebSocketClient {
         }
     }
     
+    // websocket.js, метод connect(token)
+
     connect(token) {
         if (!token) {
             // Попытка подключения WebSocket без токена.
@@ -180,12 +182,17 @@ class WebSocketClient {
             return;
         }
 
-        const fullToken = token.startsWith('Bearer ') ? token : `Bearer ${token}`;
-        
         // Динамический URL на основе текущего хоста
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        let wsUrl = `${protocol}//${window.location.host}/ws?token=${encodeURIComponent(fullToken)}`;
         
+        // --- НАЧАЛО ИСПРАВЛЕНИЯ ---
+        // Формируем URL, передавая в параметре 'token' ТОЛЬКО чистый токен.
+        // Сервер ожидает именно такой формат.
+        let wsUrl = `${protocol}//${window.location.host}/ws?token=Bearer%20${encodeURIComponent(token )}`;
+        // --- КОНЕЦ ИСПРАВЛЕНИЯ ---
+
+        console.log('🔗 WebSocket URL:', wsUrl); // Для отладки
+
         // Специальная обработка для ngrok
         if (window.location.host.includes('ngrok') || window.location.host.includes('ngrok-free.app')) {
             // Обнаружен ngrok, переходим на HTTP polling вместо WebSocket
