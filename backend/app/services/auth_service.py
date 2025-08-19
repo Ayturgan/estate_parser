@@ -68,7 +68,7 @@ class AuthService:
         except jwt.ExpiredSignatureError:
             logger.warning("Token expired")
             return None
-        except jwt.JWTError as e:
+        except jwt.InvalidTokenError as e:
             logger.warning(f"Invalid token: {e}")
             return None
 
