@@ -5,7 +5,7 @@ class WebSocketClient {
     constructor() {
         this.ws = null;
         this.reconnectAttempts = 0;
-        this.maxReconnectAttempts = 5;
+        this.maxReconnectAttempts = 10;  // Увеличиваем до 10 попыток
         this.reconnectDelay = 1000;
         this.isConnected = false;
         this.eventHandlers = new Map();
@@ -271,7 +271,11 @@ class WebSocketClient {
             }
             
             if (event.code !== 1000 && this.reconnectAttempts < this.maxReconnectAttempts) {
+                console.log(`🔄 WebSocket переподключение (попытка ${this.reconnectAttempts + 1}/${this.maxReconnectAttempts})`);
                 this.reconnect();
+            } else if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+                console.log(`❌ WebSocket исчерпал все попытки переподключения (${this.maxReconnectAttempts}). Остановка переподключений.`);
+                setRealtimeIndicator(false);
             }
         };
     }

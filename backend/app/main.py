@@ -170,16 +170,19 @@ else:
     origins = [origin.strip() for origin in ALLOWED_ORIGINS if origin.strip()]
     logger.info(f"🔒 CORS: продакшн режим - источники: {origins}")
     
-    # Добавляем IP адрес сервера автоматически
-    server_ip = os.getenv("SERVER_IP")
-    if server_ip:
-        origins.extend([
-            f"http://{server_ip}",
-            f"https://{server_ip}",
-            f"http://{server_ip}:80",
-            f"https://{server_ip}:443"
-        ])
-        logger.info(f"🔒 CORS: добавлен IP сервера: {server_ip}")
+    # Добавляем IP адреса сервера автоматически (поддерживаем список через запятую)
+    server_ips = os.getenv("SERVER_IP")
+    if server_ips:
+        # Разбиваем по запятой и очищаем от пробелов
+        ip_list = [ip.strip() for ip in server_ips.split(",") if ip.strip()]
+        for server_ip in ip_list:
+            origins.extend([
+                f"http://{server_ip}",
+                f"https://{server_ip}",
+                f"http://{server_ip}:80",
+                f"https://{server_ip}:443"
+            ])
+        logger.info(f"🔒 CORS: добавлены IP серверов: {ip_list}")
     else:
         # Автоматически определяем IP адрес сервера
         try:
@@ -238,6 +241,7 @@ api_router = APIRouter()
 
 
 # 2. Подключаем WebSocket роутер (он станет частью /api)
+logger.info(f"🔌 Добавляем WebSocket роутер с {len(websocket_router.routes)} маршрутами")
 api_router.include_router(websocket_router)
 logger.info("✅ WebSocket роутер добавлен в API")
 
@@ -1681,6 +1685,13 @@ async def rebuild_realtors(background_tasks: BackgroundTasks, db: Session = Depe
         logger.error(f"Error starting realtor rebuild: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
+# Отладочная информация о маршрутах
+logger.info(f"🔍 Всего маршрутов в api_router: {len(api_router.routes)}")
+for route in api_router.routes:
+    if hasattr(route, 'path'):
+        methods = getattr(route, 'methods', ['WebSocket']) 
+        logger.info(f"🔍 Маршрут: {methods} {route.path}")
 
 app.include_router(api_router, prefix="/api")
 logger.info("✅ API роутер подключен с префиксом /api")

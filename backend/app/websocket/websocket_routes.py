@@ -11,6 +11,8 @@ logger = logging.getLogger(__name__)
 
 websocket_router = APIRouter()
 
+logger.info("🔌 WebSocket роутер создан")
+
 @websocket_router.websocket("/ws/")
 async def websocket_endpoint(
     websocket: WebSocket,
