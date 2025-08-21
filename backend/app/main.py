@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from typing import List, Dict, Optional, Union, Any
 from datetime import datetime
+from pydantic import BaseModel
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import and_, func, desc
 import logging
@@ -230,38 +231,17 @@ async def add_security_headers(request, call_next):
 
 logger.info("✅ Middleware безопасности добавлен")
 
-# Специальная обработка CORS для WebSocket
-@app.middleware("http")
-async def websocket_cors_middleware(request, call_next):
-    if request.url.path == "/ws":
-        # Для WebSocket endpoint разрешаем все заголовки
-        response = await call_next(request)
-        response.headers["Access-Control-Allow-Origin"] = "*"
-        response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
-        response.headers["Access-Control-Allow-Headers"] = "*"
-        response.headers["Access-Control-Allow-Credentials"] = "true"
-        return response
-    return await call_next(request)
 
-# Специальная обработка для WebSocket upgrade
-@app.middleware("http")
-async def websocket_upgrade_middleware(request, call_next):
-    if request.url.path == "/ws" and request.method == "GET":
-        # Добавляем заголовки для WebSocket upgrade
-        response = await call_next(request)
-        response.headers["Upgrade"] = "websocket"
-        response.headers["Connection"] = "Upgrade"
-        return response
-    return await call_next(request)
+# Единый API роутер
+api_router = APIRouter()
 
-logger.info("✅ WebSocket middleware добавлен")
 
-# Подключение WebSocket (ПЕРВЫМ!)
-app.include_router(websocket_router, prefix="/api")
 
-logger.info("✅ WebSocket роутер подключен")
+# 2. Подключаем WebSocket роутер (он станет частью /api)
+api_router.include_router(websocket_router)
+logger.info("✅ WebSocket роутер добавлен в API")
 
-# Подключение веб-интерфейса
+# 1. Подключаем веб-страницы (без префикса)
 app.include_router(web_router)
 logger.info("✅ Веб-роутер подключен")
 
@@ -279,8 +259,7 @@ es_service = ElasticsearchService(hosts=ELASTICSEARCH_HOSTS, index_name=ELASTICS
 
 scrapy_manager = ScrapyManager(redis_url=f"{REDIS_URL}/0")
 
-# Единый API роутер
-api_router = APIRouter(prefix="/api", tags=["api"])
+
 
 # Вспомогательные функции
 async def get_from_cache(key: str) -> Optional[str]:
@@ -1476,8 +1455,6 @@ async def get_settings_by_category(category: str):
     from app.services.settings_service import settings_service
     return settings_service.get_settings_by_category(category)
 
-from pydantic import BaseModel
-
 class SettingUpdateRequest(BaseModel):
     value: Any
     value_type: str = 'string'
@@ -1704,8 +1681,9 @@ async def rebuild_realtors(background_tasks: BackgroundTasks, db: Session = Depe
         logger.error(f"Error starting realtor rebuild: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-app.include_router(api_router)
-logger.info("✅ API роутер подключен")
+
+app.include_router(api_router, prefix="/api")
+logger.info("✅ API роутер подключен с префиксом /api")
 
 
 if __name__ == "__main__":
