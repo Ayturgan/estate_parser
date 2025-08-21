@@ -21,12 +21,17 @@ class WebSocketManager:
     async def connect(self, websocket: WebSocket, token: str, db: Session) -> Optional[str]:
         """Подключает клиента с проверкой аутентификации"""
         try:
-            # Проверяем токен
-            if not token or not token.startswith("Bearer "):
-                await websocket.close(code=4001, reason="Invalid token format")
+            # Проверяем токен - принимаем как Bearer формат, так и напрямую
+            if not token:
+                await websocket.close(code=4001, reason="No token provided")
                 return None
             
-            token_value = token.split(" ")[1]
+            # Если токен передан с префиксом Bearer, извлекаем его
+            if token.startswith("Bearer "):
+                token_value = token.split(" ")[1]
+            else:
+                # Токен передан напрямую (как в URL параметре)
+                token_value = token
             admin = self.auth_service.get_admin_by_token(db, token_value)
             
             if not admin:
